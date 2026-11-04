@@ -22,6 +22,8 @@ Sonora is under active development. What works today:
 - Keyless metadata and lyrics: MusicBrainz and Cover Art Archive, Deezer and
   iTunes artwork fallbacks, LRCLIB lyrics (synced and plain), all cached;
   Last.fm tags when a key is configured.
+- Settings screen for the format preference and bitrate ceiling, cache budget,
+  artwork format and quality, folder template and the Last.fm key.
 
 Supported platforms: **Windows**, **Linux** and **Android**. Android is a
 first-class target, but its build harness and touch layout are still being

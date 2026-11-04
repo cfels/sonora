@@ -297,6 +297,8 @@ pub struct Settings {
     pub cache_folder: Option<PathBuf>,
     /// Cache budget in bytes; the least recently played tracks are evicted first.
     pub cache_limit_bytes: u64,
+    /// Last.fm API key. Optional: every keyless provider keeps working without it.
+    pub lastfm_api_key: Option<String>,
     pub folder_template: FolderTemplate,
     pub artwork: ArtworkSettings,
     /// Automatic device sync when a device is plugged in. Opt-in, desktop only.
@@ -312,6 +314,7 @@ impl Default for Settings {
             download_folder: None,
             cache_folder: None,
             cache_limit_bytes: DEFAULT_CACHE_LIMIT_BYTES,
+            lastfm_api_key: None,
             folder_template: FolderTemplate::default(),
             artwork: ArtworkSettings::default(),
             device_sync_enabled: false,
@@ -329,6 +332,11 @@ impl Settings {
             .cache_limit_bytes
             .clamp(MIN_CACHE_LIMIT_BYTES, u64::MAX);
         self.artwork = self.artwork.normalized();
+        // A blank key means "not configured", not an empty credential.
+        self.lastfm_api_key = self
+            .lastfm_api_key
+            .map(|key| key.trim().to_string())
+            .filter(|key| !key.is_empty());
         if self.folder_template.as_str().trim().is_empty() {
             self.folder_template = FolderTemplate::default();
         }
@@ -486,11 +494,21 @@ mod tests {
             },
             device_sync_enabled: true,
             onboarding_completed: true,
+            lastfm_api_key: Some("abc123".to_string()),
             ..Settings::default()
         };
 
         let restored = Settings::from_json(&settings.to_json()).unwrap();
         assert_eq!(restored, settings);
+    }
+
+    #[test]
+    fn a_lastfm_key_is_trimmed_and_a_blank_one_disappears() {
+        let settings = Settings::from_json(r#"{"lastfm_api_key": "  abc123  "}"#).unwrap();
+        assert_eq!(settings.lastfm_api_key.as_deref(), Some("abc123"));
+
+        let settings = Settings::from_json(r#"{"lastfm_api_key": "   "}"#).unwrap();
+        assert_eq!(settings.lastfm_api_key, None);
     }
 
     #[test]

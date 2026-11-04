@@ -38,11 +38,11 @@ Delivered:
 
 Still open:
 
-- Device selection, ReplayGain from tags, persisted queue across restarts.
-- A settings screen that edits the document: format preference and bitrate
-  ceiling, cache budget and folder, download folder, folder template, artwork
-  format/quality, sync opt-in and onboarding flag. The document and its clamping
-  already exist and `sonora --settings` prints it.
+- Device selection and ReplayGain from tags.
+- Folder pickers for the download and cache locations, and the device-sync
+  opt-in. The settings screen covers format preference and ceiling, cache
+  budget, artwork format/quality, folder template and the Last.fm key.
+- Persisted queue across restarts.
 - Play counts, ratings, favourites, skip tracking, history.
 - Album and artist detail views, and artwork in the rows instead of placeholders.
 - Custom playlists and smart playlists with a rule editor.

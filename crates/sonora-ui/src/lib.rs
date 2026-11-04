@@ -18,7 +18,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel, Weak};
-use sonora_core::{format_duration, Event, TrackId, TrackView};
+use sonora_core::{
+    format_duration, ArtworkFormat, Event, FolderTemplate, FormatPreference, FormatTier, Settings,
+    TrackId, TrackView,
+};
 use sonora_db::{AlbumSummary, Db};
 use sonora_playback::{Engine, PlaybackState, Resolver};
 use sonora_scan::Scanner;
@@ -151,6 +154,66 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                 refresh_all(weak.clone(), ctx.clone(), handle_for_task, lookup.clone());
             });
         });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = ctx.db.clone();
+        handle.spawn(async move {
+            match db.load_settings().await {
+                Ok(settings) => {
+                    let _ = weak.upgrade_in_event_loop(move |ui| apply_settings(&ui, &settings));
+                }
+                Err(err) => log::error!("could not load settings: {err}"),
+            }
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = ctx.db.clone();
+        let handle = handle.clone();
+        ui.on_save_settings(
+            move |tier, bitrate, cache_mib, artwork_format, quality, template, lastfm_key| {
+                let weak = weak.clone();
+                let db = db.clone();
+                handle.spawn(async move {
+                    let mut settings = db.load_settings().await.unwrap_or_default();
+                    settings.format = FormatPreference::new(
+                        if tier.as_str() == "lossy" {
+                            FormatTier::Lossy
+                        } else {
+                            FormatTier::Lossless
+                        },
+                        bitrate.clamp(0, i32::MAX) as u32,
+                    );
+                    settings.cache_limit_bytes = (cache_mib.max(0) as u64) * 1024 * 1024;
+                    settings.artwork.format = if artwork_format.as_str() == "png" {
+                        ArtworkFormat::Png
+                    } else {
+                        ArtworkFormat::Jpeg
+                    };
+                    settings.artwork.quality = quality.clamp(0, 255) as u8;
+                    settings.folder_template = FolderTemplate::new(template.to_string());
+                    settings.lastfm_api_key = Some(lastfm_key.to_string());
+                    let settings = settings.normalized();
+
+                    match db.save_settings(&settings).await {
+                        Ok(()) => {
+                            let saved = settings.clone();
+                            let _ = weak.upgrade_in_event_loop(move |ui| {
+                                apply_settings(&ui, &saved);
+                                ui.set_status("Settings saved.".into());
+                            });
+                        }
+                        Err(err) => {
+                            log::error!("could not save settings: {err}");
+                            set_status(&weak, format!("Could not save settings: {err}"));
+                        }
+                    }
+                });
+            },
+        );
     }
 
     let _playback_timer = engine.clone().map(|engine| {
@@ -501,6 +564,23 @@ fn listen_for_events(
             }
         }
     });
+}
+
+/// Show the stored settings in the settings page.
+fn apply_settings(ui: &AppWindow, settings: &Settings) {
+    ui.set_settings_format_tier(
+        match settings.format.tier {
+            FormatTier::Lossless => "lossless",
+            FormatTier::Lossy => "lossy",
+        }
+        .into(),
+    );
+    ui.set_settings_bitrate(settings.format.max_bitrate_kbps as i32);
+    ui.set_settings_cache_mib((settings.cache_limit_bytes / 1024 / 1024) as i32);
+    ui.set_settings_artwork_format(settings.artwork.format.extension().into());
+    ui.set_settings_artwork_quality(i32::from(settings.artwork.quality));
+    ui.set_settings_folder_template(settings.folder_template.as_str().into());
+    ui.set_settings_lastfm_key(settings.lastfm_api_key.clone().unwrap_or_default().into());
 }
 
 fn set_status(weak: &Weak<AppWindow>, message: impl Into<slint::SharedString>) {

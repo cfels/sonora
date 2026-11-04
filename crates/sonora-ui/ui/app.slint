@@ -535,6 +535,14 @@ export component AppWindow inherits Window {
     in property <[QueueRow]> queue-entries;
     in-out property <bool> queue-open: false;
 
+    in-out property <string> settings-format-tier: "lossless";
+    in-out property <int> settings-bitrate: 320;
+    in-out property <int> settings-cache-mib: 4096;
+    in-out property <string> settings-artwork-format: "jpg";
+    in-out property <int> settings-artwork-quality: 90;
+    in-out property <string> settings-folder-template: "{album_artist}/{album}/{track_no:02} {title}";
+    in-out property <string> settings-lastfm-key: "";
+
     callback section-changed(string);
     callback search-changed(string);
     callback add-folder(string);
@@ -550,8 +558,9 @@ export component AppWindow inherits Window {
     callback volume-changed(float);
     callback queue-move(int, int);
     callback queue-remove(int);
+    callback save-settings(string, int, int, string, int, string, string);
 
-    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : "Library folders";
+    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "settings" ? "Settings" : "Library folders";
 
     VerticalLayout {
         HorizontalLayout {
@@ -618,6 +627,13 @@ export component AppWindow inherits Window {
                         active: root.section == "folders";
                         clicked => {
                             root.section-changed("folders");
+                        }
+                    }
+                    NavItem {
+                        label: "Settings";
+                        active: root.section == "settings";
+                        clicked => {
+                            root.section-changed("settings");
                         }
                     }
 
@@ -730,6 +746,195 @@ export component AppWindow inherits Window {
                             }
                             enqueue(id) => {
                                 root.enqueue-requested(id);
+                            }
+                        }
+                    }
+                }
+
+                // ----------------------------------------------------- settings
+                if root.section == "settings" : ScrollView {
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 14px;
+
+                        Text {
+                            text: "Playback format";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Lossless prefers FLAC and WAV. Lossy never exceeds the ceiling below, and the ceiling is a maximum, never a target to re-encode up to.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            ActionButton {
+                                label: "Lossless";
+                                primary: root.settings-format-tier == "lossless";
+                                clicked => {
+                                    root.settings-format-tier = "lossless";
+                                }
+                            }
+                            ActionButton {
+                                label: "Lossy";
+                                primary: root.settings-format-tier == "lossy";
+                                clicked => {
+                                    root.settings-format-tier = "lossy";
+                                }
+                            }
+                        }
+                        Text {
+                            text: "Bitrate ceiling: \{root.settings-bitrate} kbit/s";
+                            color: Palette.muted;
+                            font-size: 12px;
+                        }
+                        Slider {
+                            minimum: 32;
+                            maximum: 1411;
+                            value: root.settings-bitrate;
+                            changed(value) => {
+                                root.settings-bitrate = round(value);
+                            }
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
+                            text: "Track cache";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Least recently played tracks are evicted first, and the playing track is never removed.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        Text {
+                            text: "Budget: \{root.settings-cache-mib} MiB";
+                            color: Palette.muted;
+                            font-size: 12px;
+                        }
+                        Slider {
+                            minimum: 64;
+                            maximum: 16384;
+                            value: root.settings-cache-mib;
+                            changed(value) => {
+                                root.settings-cache-mib = round(value);
+                            }
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
+                            text: "Artwork";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            ActionButton {
+                                label: "JPEG";
+                                primary: root.settings-artwork-format == "jpg";
+                                clicked => {
+                                    root.settings-artwork-format = "jpg";
+                                }
+                            }
+                            ActionButton {
+                                label: "PNG";
+                                primary: root.settings-artwork-format == "png";
+                                clicked => {
+                                    root.settings-artwork-format = "png";
+                                }
+                            }
+                        }
+                        Text {
+                            text: "JPEG quality: \{root.settings-artwork-quality}";
+                            color: Palette.muted;
+                            font-size: 12px;
+                        }
+                        Slider {
+                            minimum: 1;
+                            maximum: 100;
+                            value: root.settings-artwork-quality;
+                            changed(value) => {
+                                root.settings-artwork-quality = round(value);
+                            }
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
+                            text: "Library layout";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        LineEdit {
+                            text: root.settings-folder-template;
+                            edited(text) => {
+                                root.settings-folder-template = text;
+                            }
+                        }
+                        Text {
+                            text: "Placeholders: album_artist, album, artist, title, track_no:02, disc_no, year.";
+                            color: Palette.muted;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
+                            text: "Last.fm";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Optional. Last.fm data needs a free API key; every keyless provider keeps working without one.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        LineEdit {
+                            text: root.settings-lastfm-key;
+                            placeholder-text: "API key";
+                            edited(text) => {
+                                root.settings-lastfm-key = text;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 14px;
+                            ActionButton {
+                                label: "Save settings";
+                                clicked => {
+                                    root.save-settings(root.settings-format-tier, root.settings-bitrate, root.settings-cache-mib, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key);
+                                }
+                            }
+                            Text {
+                                text: root.status;
+                                color: Palette.muted;
+                                font-size: 12px;
+                                vertical-alignment: center;
                             }
                         }
                     }

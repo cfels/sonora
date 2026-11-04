@@ -453,6 +453,60 @@ impl Db {
         Ok(stale.len() as u64)
     }
 
+    // ----------------------------------------------------------------- lyrics
+
+    /// Store lyrics for a track, replacing whatever was there before.
+    pub async fn save_lyrics(
+        &self,
+        track: TrackId,
+        plain: Option<&str>,
+        synced: Option<&str>,
+        source: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO lyrics (track_id, plain, synced, source, fetched_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT (track_id) DO UPDATE SET
+                 plain = excluded.plain,
+                 synced = excluded.synced,
+                 source = excluded.source,
+                 fetched_at = excluded.fetched_at",
+        )
+        .bind(track)
+        .bind(plain)
+        .bind(synced)
+        .bind(source)
+        .bind(now())
+        .execute(&self.pool)
+        .await
+        .db()?;
+        Ok(())
+    }
+
+    pub async fn lyrics_for(&self, track: TrackId) -> Result<Option<StoredLyrics>> {
+        let row =
+            sqlx::query("SELECT plain, synced, source, fetched_at FROM lyrics WHERE track_id = ?1")
+                .bind(track)
+                .fetch_optional(&self.pool)
+                .await
+                .db()?;
+        Ok(row.map(|row| StoredLyrics {
+            plain: opt_string(&row, "plain"),
+            synced: opt_string(&row, "synced"),
+            source: row.get("source"),
+            fetched_at: row.get("fetched_at"),
+        }))
+    }
+
+    pub async fn clear_lyrics(&self, track: TrackId) -> Result<()> {
+        sqlx::query("DELETE FROM lyrics WHERE track_id = ?1")
+            .bind(track)
+            .execute(&self.pool)
+            .await
+            .db()?;
+        Ok(())
+    }
+
     // ---------------------------------------------------------------- settings
 
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<()> {
@@ -500,6 +554,21 @@ impl Db {
     pub async fn save_settings(&self, settings: &Settings) -> Result<()> {
         let document = settings.clone().normalized().to_json();
         self.set_setting(SETTINGS_KEY, &document).await
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredLyrics {
+    pub plain: Option<String>,
+    pub synced: Option<String>,
+    pub source: String,
+    pub fetched_at: i64,
+}
+
+impl StoredLyrics {
+    /// The text to render when the view cannot follow timestamps.
+    pub fn display_text(&self) -> Option<&str> {
+        self.plain.as_deref().or(self.synced.as_deref())
     }
 }
 
@@ -853,6 +922,70 @@ mod tests {
         // Quotes and operators must be treated as literal text, not syntax.
         assert!(db.search("\" OR 1=1 --", 10).await.is_ok());
         assert!(db.search("   ", 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn lyrics_replace_instead_of_duplicating() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let id = match db
+            .upsert_scanned(
+                folder,
+                run,
+                &[track("/music/a.mp3", "Xtal", "Aphex Twin", "SAW")],
+            )
+            .await
+            .unwrap()[0]
+        {
+            UpsertOutcome::Imported(id) => id,
+            other => panic!("expected an import, got {other:?}"),
+        };
+
+        assert_eq!(db.lyrics_for(id).await.unwrap(), None);
+
+        db.save_lyrics(id, Some("first pass"), None, "lrclib")
+            .await
+            .unwrap();
+        db.save_lyrics(id, Some("second pass"), Some("[00:01.00] second"), "lrclib")
+            .await
+            .unwrap();
+
+        let stored = db.lyrics_for(id).await.unwrap().expect("lyrics");
+        assert_eq!(stored.plain.as_deref(), Some("second pass"));
+        assert_eq!(stored.display_text(), Some("second pass"));
+        assert_eq!(stored.source, "lrclib");
+        assert!(stored.fetched_at > 0);
+    }
+
+    #[tokio::test]
+    async fn removing_a_track_removes_its_lyrics() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let id = match db
+            .upsert_scanned(
+                folder,
+                run,
+                &[track("/music/a.mp3", "Xtal", "Aphex Twin", "SAW")],
+            )
+            .await
+            .unwrap()[0]
+        {
+            UpsertOutcome::Imported(id) => id,
+            other => panic!("expected an import, got {other:?}"),
+        };
+        db.save_lyrics(id, Some("words"), None, "lrclib")
+            .await
+            .unwrap();
+
+        sqlx::query("DELETE FROM tracks WHERE id = ?1")
+            .bind(id)
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        assert_eq!(db.lyrics_for(id).await.unwrap(), None);
     }
 
     #[tokio::test]

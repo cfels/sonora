@@ -5,6 +5,7 @@ members = [
     "crates/sonora-db",
     "crates/sonora-scan",
     "crates/sonora-artwork",
+    "crates/sonora-metadata",
     "crates/sonora-playback",
     "crates/sonora-ui",
     "crates/sonora-app",
@@ -23,6 +24,7 @@ sonora-core = { path = "crates/sonora-core" }
 sonora-db = { path = "crates/sonora-db" }
 sonora-scan = { path = "crates/sonora-scan" }
 sonora-artwork = { path = "crates/sonora-artwork" }
+sonora-metadata = { path = "crates/sonora-metadata" }
 sonora-playback = { path = "crates/sonora-playback" }
 sonora-ui = { path = "crates/sonora-ui" }
 
@@ -47,6 +49,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "chrono",
 ] }
 thiserror = "2"
+ureq = { version = "2", features = ["tls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
 walkdir = "2"
 

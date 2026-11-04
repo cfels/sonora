@@ -39,15 +39,33 @@ jobs:
           export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
           cargo build --release -p sonora-app
 
-      - name: Collect the executable and the DLLs it needs
+      - name: Collect the executable, its DLLs and the GStreamer plugins
         shell: msys2 {0}
         run: |
           mkdir -p dist
           cp target/release/sonora.exe dist/
+
+          # Direct dependencies of the executable.
           ldd target/release/sonora.exe | grep -oE '/mingw64/bin/[^ ]+\.dll' | sort -u | while read -r dll; do
             cp "$dll" dist/
           done
+
+          # GStreamer loads elements at runtime, so ldd on the exe is not enough:
+          # playbin, wavparse, audioconvert and the audio sink live in plugin
+          # modules. Ship them, plus whatever those modules themselves link to.
+          cp -r /mingw64/lib/gstreamer-1.0 dist/gstreamer-1.0
+          find dist/gstreamer-1.0 -name '*.dll' -exec ldd {} \; \
+            | grep -oE '/mingw64/bin/[^ ]+\.dll' | sort -u \
+            | while read -r dll; do
+                cp -n "$dll" dist/ 2>/dev/null || true
+              done
+
+          # Double-clicking the exe would not find the plugins, so ship a launcher
+          # that points GStreamer at the folder next to it.
+          printf '@echo off\r\nset "GST_PLUGIN_PATH_1_0=%%~dp0gstreamer-1.0"\r\nstart "" "%%~dp0sonora.exe"\r\n' > dist/run-sonora.bat
+
           ls -la dist | head -40
+          echo "plugins: $(find dist/gstreamer-1.0 -name '*.dll' | wc -l)"
 
       - uses: actions/upload-artifact@v4
         with:

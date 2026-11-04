@@ -5042,6 +5042,7 @@ dependencies = [
  "env_logger",
  "log",
  "sonora-artwork",
+ "sonora-cache",
  "sonora-core",
  "sonora-db",
  "sonora-metadata",
@@ -5060,6 +5061,19 @@ dependencies = [
  "log",
  "sonora-core",
  "tempfile",
+]
+
+[[package]]
+name = "sonora-cache"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "sonora-core",
+ "tempfile",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

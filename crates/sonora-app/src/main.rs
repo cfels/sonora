@@ -23,6 +23,7 @@ USAGE:
     sonora --artwork <folder>   Export cover art for every track in a folder
     sonora --lyrics <query>     Fetch and store lyrics for the best search match
     sonora --cover <query>      Fetch and store cover art for the best search match
+    sonora --cache              Show the track cache and enforce its budget
     sonora --where              Print the library database path
     sonora --settings           Print the current settings as JSON
     sonora --version            Print the version
@@ -73,6 +74,9 @@ fn main() -> anyhow::Result<()> {
         }
         [flag, query] if flag == "--cover" => {
             save_cover(&runtime, &db, &db_path, query)?;
+        }
+        [flag] if flag == "--cache" => {
+            show_cache(&runtime, &db, &db_path)?;
         }
         [flag] if flag == "--help" || flag == "-h" => {
             println!("{USAGE}");
@@ -259,6 +263,61 @@ fn label(track: &sonora_core::TrackView) -> String {
     match track.artist.as_deref() {
         Some(artist) => format!("{artist} — {}", track.title),
         None => track.title.clone(),
+    }
+}
+
+/// Show what the cache holds and evict down to the configured budget.
+///
+/// The CLI has no playing queue, so nothing is protected here; the player passes
+/// the playing track and its queue when it calls the same code.
+fn show_cache(
+    runtime: &tokio::runtime::Runtime,
+    db: &Db,
+    db_path: &std::path::Path,
+) -> anyhow::Result<()> {
+    let settings = runtime.block_on(db.load_settings())?;
+    let root = settings.cache_folder.clone().unwrap_or_else(|| {
+        db_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("cache")
+    });
+    let cache = sonora_cache::TrackCache::with_policy(
+        &root,
+        settings.cache_limit_bytes,
+        sonora_cache::DEFAULT_FREE_SPACE_FLOOR,
+    );
+
+    let before = cache.stats()?;
+    let report = cache.enforce(&[])?;
+    let after = cache.stats()?;
+
+    println!("Cache:     {}", root.display());
+    println!(
+        "Budget:    {} MiB",
+        settings.cache_limit_bytes / 1024 / 1024
+    );
+    println!(
+        "Free:      {}",
+        describe_free_space(sonora_cache::free_space(&root))
+    );
+    println!(
+        "Tracks:    {} ({} before cleanup)",
+        after.tracks, before.tracks
+    );
+    println!("Bytes:     {}", after.bytes);
+    println!("Evicted:   {}", report.removed_count());
+    println!("Freed:     {}", report.freed_bytes);
+    for track in &report.removed {
+        println!("  track {track}");
+    }
+    Ok(())
+}
+
+fn describe_free_space(bytes: Option<u64>) -> String {
+    match bytes {
+        Some(bytes) => format!("{} MiB available", bytes / 1024 / 1024),
+        None => "unknown on this platform".to_string(),
     }
 }
 

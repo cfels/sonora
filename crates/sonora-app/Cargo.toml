@@ -16,6 +16,7 @@ directories = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
 sonora-artwork = { workspace = true }
+sonora-cache = { workspace = true }
 sonora-core = { workspace = true }
 sonora-db = { workspace = true }
 sonora-metadata = { workspace = true }

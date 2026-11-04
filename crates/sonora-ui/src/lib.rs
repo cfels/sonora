@@ -72,6 +72,9 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
     if let Some(engine) = engine.as_ref() {
         ui.set_volume(engine.volume() as f32);
     }
+    if let Some(engine) = engine.clone() {
+        wire_lyrics(&ui, weak.clone(), ctx.db.clone(), handle.clone(), engine);
+    }
 
     {
         let weak = weak.clone();
@@ -451,10 +454,23 @@ fn attach_playback(
     let timer = Timer::default();
     let timer_weak = weak;
     let timer_engine = engine;
+    let mut last_track = None;
     timer.start(TimerMode::Repeated, POLL_INTERVAL, move || {
         let Some(ui) = timer_weak.upgrade() else {
             return;
         };
+
+        // Lyrics belong to the track that was playing when they were fetched, so
+        // a new track clears the pane instead of showing the previous song's.
+        let current = timer_engine.current();
+        if current != last_track {
+            last_track = current;
+            if ui.get_lyrics_open() {
+                ui.set_lyrics_text("".into());
+                ui.set_lyrics_status("New track. Press Fetch lyrics.".into());
+            }
+        }
+
         ui.set_playing(timer_engine.state() == PlaybackState::Playing);
         let position = timer_engine.position_ms().unwrap_or(0);
         let duration = timer_engine.duration_ms().unwrap_or(0);
@@ -649,6 +665,175 @@ fn listen_for_events(
     });
 }
 
+/// Wire the lyrics pane: read what is cached, fetch from LRCLIB on demand.
+fn wire_lyrics(ui: &AppWindow, weak: Weak<AppWindow>, db: Db, handle: Handle, engine: Arc<Engine>) {
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let engine = engine.clone();
+        ui.on_lyrics_toggle(move || {
+            let Some(window) = weak.clone().upgrade() else {
+                return;
+            };
+            let open = !window.get_lyrics_open();
+            window.set_lyrics_open(open);
+            if !open {
+                return;
+            }
+
+            window.set_queue_open(false);
+            match engine.current() {
+                Some(track) => load_lyrics(&weak, &db, &handle, track),
+                None => {
+                    window.set_lyrics_text("".into());
+                    window.set_lyrics_status("Nothing playing.".into());
+                }
+            }
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        ui.on_lyrics_fetch(move || {
+            let Some(window) = weak.clone().upgrade() else {
+                return;
+            };
+            let Some(track) = engine.current() else {
+                window.set_lyrics_status("Nothing playing.".into());
+                return;
+            };
+            window.set_lyrics_status("Fetching from LRCLIB…".into());
+            request_lyrics(&weak, db.clone(), handle.clone(), track);
+        });
+    }
+}
+
+/// Show whatever lyrics the database already has for `track`.
+fn load_lyrics(weak: &Weak<AppWindow>, db: &Db, handle: &Handle, track: TrackId) {
+    let weak = weak.clone();
+    let db = db.clone();
+    handle.spawn(async move {
+        match db.lyrics_for(track).await {
+            Ok(Some(stored)) => {
+                let text = lyrics_text(stored.plain.as_deref(), stored.synced.as_deref());
+                let status = format!("Cached ({})", stored.source);
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.set_lyrics_text(text.into());
+                    ui.set_lyrics_status(status.into());
+                });
+            }
+            Ok(None) => {
+                let _ = weak.upgrade_in_event_loop(|ui| {
+                    ui.set_lyrics_text("".into());
+                    ui.set_lyrics_status("No saved lyrics yet. Press Fetch lyrics.".into());
+                });
+            }
+            Err(err) => log::warn!("could not read stored lyrics: {err}"),
+        }
+    });
+}
+
+/// Ask LRCLIB for lyrics and keep them, so the next open is instant and offline.
+fn request_lyrics(weak: &Weak<AppWindow>, db: Db, handle: Handle, track: TrackId) {
+    let weak = weak.clone();
+    handle.spawn(async move {
+        let Some(view) = db.track(track).await.ok().flatten() else {
+            let _ = weak.upgrade_in_event_loop(|ui| {
+                ui.set_lyrics_status("That track is no longer in the library.".into())
+            });
+            return;
+        };
+
+        let query = sonora_metadata::TrackQuery {
+            artist: view
+                .artist
+                .clone()
+                .unwrap_or_else(|| "Unknown Artist".to_string()),
+            title: view.title.clone(),
+            album: view.album.clone(),
+            duration_ms: Some(view.duration_ms.max(0) as u64),
+        };
+
+        // ureq is blocking, so the request runs off the async reactor.
+        let result = tokio::task::spawn_blocking(move || {
+            let http = sonora_metadata::UreqHttp::new(sonora_metadata::USER_AGENT);
+            sonora_metadata::fetch_lyrics(&http, &query)
+        })
+        .await;
+
+        match result {
+            Ok(Ok(Some(lyrics))) => {
+                if let Err(err) = db
+                    .save_lyrics(
+                        track,
+                        lyrics.plain.as_deref(),
+                        lyrics.synced.as_deref(),
+                        "lrclib",
+                    )
+                    .await
+                {
+                    log::warn!("could not store lyrics for track {track}: {err}");
+                }
+
+                let text = lyrics_text(lyrics.plain.as_deref(), lyrics.synced.as_deref());
+                let status = if lyrics.synced.is_some() {
+                    "Synced lyrics from LRCLIB".to_string()
+                } else {
+                    "Lyrics from LRCLIB".to_string()
+                };
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.set_lyrics_text(text.into());
+                    ui.set_lyrics_status(status.into());
+                });
+            }
+            Ok(Ok(None)) => {
+                let _ = weak.upgrade_in_event_loop(|ui| {
+                    ui.set_lyrics_status("LRCLIB has no lyrics for this track.".into())
+                });
+            }
+            Ok(Err(err)) => {
+                let status = format!("Lyrics lookup failed: {err}");
+                let _ = weak.upgrade_in_event_loop(move |ui| ui.set_lyrics_status(status.into()));
+            }
+            Err(err) => {
+                log::error!("lyrics task failed: {err}");
+                let _ = weak.upgrade_in_event_loop(|ui| {
+                    ui.set_lyrics_status("Lyrics lookup was interrupted.".into())
+                });
+            }
+        }
+    });
+}
+
+/// Text to display: plain lyrics when LRCLIB has them, otherwise the synced
+/// file with its `[mm:ss.xx]` timestamps removed so it still reads as a song.
+fn lyrics_text(plain: Option<&str>, synced: Option<&str>) -> String {
+    if let Some(plain) = plain.filter(|text| !text.trim().is_empty()) {
+        return plain.trim().to_string();
+    }
+    let Some(synced) = synced else {
+        return String::new();
+    };
+
+    let mut lines = Vec::new();
+    for line in synced.lines() {
+        let mut rest = line.trim_start();
+        while rest.starts_with('[') {
+            match rest.find(']') {
+                Some(end) => rest = rest[end + 1..].trim_start(),
+                None => break,
+            }
+        }
+        if !rest.is_empty() {
+            lines.push(rest.to_string());
+        }
+    }
+    lines.join("\n")
+}
+
 /// Apply the choices made in the onboarding flow to the stored settings.
 ///
 /// The flow only owns three things: the format preference, the ceiling and the
@@ -822,6 +1007,28 @@ mod tests {
         let visible = vec![10, 20, 30, 40];
         assert_eq!(queue_from(&visible, 30), Some(vec![30, 40]));
         assert_eq!(queue_from(&visible, 30).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn plain_lyrics_are_shown_as_they_are() {
+        let text = lyrics_text(Some("line one\nline two"), Some("[00:01.00] ignored"));
+        assert_eq!(text, "line one\nline two");
+    }
+
+    #[test]
+    fn synced_lyrics_lose_their_timestamps() {
+        let synced =
+            "[00:12.34] When you were here before\n[00:15.00] Couldn't look you in the eye\n\n";
+        assert_eq!(
+            lyrics_text(None, Some(synced)),
+            "When you were here before\nCouldn't look you in the eye"
+        );
+    }
+
+    #[test]
+    fn missing_lyrics_produce_no_text() {
+        assert_eq!(lyrics_text(None, None), "");
+        assert_eq!(lyrics_text(Some("   "), None), "");
     }
 
     #[test]

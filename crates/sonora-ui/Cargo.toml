@@ -13,6 +13,7 @@ slint = { workspace = true }
 sonora-core = { workspace = true }
 sonora-playback = { workspace = true }
 sonora-db = { workspace = true }
+sonora-metadata = { workspace = true }
 sonora-scan = { workspace = true }
 tokio = { workspace = true }
 

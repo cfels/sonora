@@ -78,6 +78,9 @@ Delivered:
   network.
 - Lyrics stored per track in the `lyrics` table, and reachable headlessly with
   `sonora --lyrics <query>` and `sonora --cover <query>`.
+- A lyrics pane in the player: it shows saved lyrics first (so a second open is
+  offline and instant), fetches from LRCLIB on demand, keeps the result, and
+  clears itself when the track changes instead of showing the previous song.
 
 Still open:
 
@@ -85,8 +88,8 @@ Still open:
 - Last.fm (needs a free developer API key): auth, scrobbling with an offline
   queue, now-playing, loved tracks, charts, similar artists, recommendations,
   cached responses.
-- A synced lyrics view that follows playback, local `.lrc` precedence and lyric
-  editing.
+- Synced lyrics that follow playback line by line, local `.lrc` precedence over
+  remote results, and lyric editing.
 - Discord Rich Presence (hidden while paused, fully disableable): RPC/IPC on
   desktop, and on Android through the Discord Social SDK, which publishes
   presence without account linking when the Discord app is installed and signed

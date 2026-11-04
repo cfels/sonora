@@ -291,6 +291,7 @@ component TransportBar inherits Rectangle {
     callback seek(int);
     callback volume-changed(float);
     callback queue-toggle();
+    callback lyrics-toggle();
 
     height: 78px;
     background: Palette.panel;
@@ -391,6 +392,14 @@ component TransportBar inherits Rectangle {
             value: root.volume;
             changed(value) => {
                 root.volume-changed(value);
+            }
+        }
+
+        ActionButton {
+            label: "Lyrics";
+            primary: false;
+            clicked => {
+                root.lyrics-toggle();
             }
         }
 
@@ -496,6 +505,64 @@ component QueuePanel inherits Rectangle {
                 font-size: 12px;
                 horizontal-alignment: center;
                 vertical-alignment: center;
+            }
+        }
+    }
+}
+
+component LyricsPanel inherits Rectangle {
+    in property <string> text: "";
+    in property <string> status: "";
+
+    callback close();
+    callback fetch();
+
+    width: 320px;
+    background: Palette.sidebar;
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            Text {
+                text: "Lyrics";
+                color: Palette.text;
+                font-size: 15px;
+                font-weight: 600;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+            }
+            ActionButton {
+                label: "Close";
+                primary: false;
+                clicked => {
+                    root.close();
+                }
+            }
+        }
+
+        ActionButton {
+            label: "Fetch lyrics";
+            primary: false;
+            clicked => {
+                root.fetch();
+            }
+        }
+
+        Text {
+            text: root.status;
+            color: Palette.muted;
+            font-size: 10px;
+            wrap: word-wrap;
+        }
+
+        ScrollView {
+            Text {
+                text: root.text;
+                color: Palette.text;
+                font-size: 12px;
+                wrap: word-wrap;
             }
         }
     }
@@ -724,6 +791,9 @@ export component AppWindow inherits Window {
     in-out property <bool> queue-open: false;
     in-out property <bool> onboarding-open: false;
     in-out property <int> onboarding-step: 0;
+    in-out property <bool> lyrics-open: false;
+    in property <string> lyrics-text: "";
+    in property <string> lyrics-status: "";
 
     in-out property <string> settings-format-tier: "lossless";
     in-out property <int> settings-bitrate: 320;
@@ -753,6 +823,8 @@ export component AppWindow inherits Window {
     callback onboarding-back();
     callback onboarding-finish();
     callback run-onboarding();
+    callback lyrics-toggle();
+    callback lyrics-fetch();
 
     private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "settings" ? "Settings" : "Library folders";
 
@@ -1246,6 +1318,17 @@ export component AppWindow inherits Window {
             }
 
             // ------------------------------------------------------ queue panel
+            if root.lyrics-open : LyricsPanel {
+                text: root.lyrics-text;
+                status: root.lyrics-status;
+                close() => {
+                    root.lyrics-open = false;
+                }
+                fetch() => {
+                    root.lyrics-fetch();
+                }
+            }
+
             if root.queue-open : QueuePanel {
                 entries: root.queue-entries;
                 remove(index) => {
@@ -1285,6 +1368,9 @@ export component AppWindow inherits Window {
             }
             queue-toggle() => {
                 root.queue-open = !root.queue-open;
+            }
+            lyrics-toggle() => {
+                root.lyrics-toggle();
             }
         }
         }

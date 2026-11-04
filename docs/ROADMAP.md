@@ -81,6 +81,8 @@ Delivered:
 - A lyrics pane in the player: it shows saved lyrics first (so a second open is
   offline and instant), fetches from LRCLIB on demand, keeps the result, and
   clears itself when the track changes instead of showing the previous song.
+- Cover art in the transport bar, decoded off the UI thread from the file's
+  embedded picture and refreshed whenever playback moves to another track.
 
 Still open:
 

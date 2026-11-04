@@ -284,6 +284,7 @@ component TransportBar inherits Rectangle {
     in property <string> position-label: "0:00";
     in property <string> duration-label: "0:00";
     in property <float> volume: 1.0;
+    in property <image> artwork;
 
     callback toggle();
     callback previous();
@@ -300,6 +301,21 @@ component TransportBar inherits Rectangle {
         padding-left: 18px;
         padding-right: 18px;
         spacing: 14px;
+
+        Rectangle {
+            width: 52px;
+            height: 52px;
+            border-radius: 6px;
+            background: Palette.stroke;
+            clip: true;
+
+            Image {
+                source: root.artwork;
+                width: parent.width;
+                height: parent.height;
+                image-fit: cover;
+            }
+        }
 
         VerticalLayout {
             width: 210px;
@@ -794,6 +810,7 @@ export component AppWindow inherits Window {
     in-out property <bool> lyrics-open: false;
     in property <string> lyrics-text: "";
     in property <string> lyrics-status: "";
+    in property <image> artwork;
 
     in-out property <string> settings-format-tier: "lossless";
     in-out property <int> settings-bitrate: 320;
@@ -1350,6 +1367,7 @@ export component AppWindow inherits Window {
             position-label: root.position-label;
             duration-label: root.duration-label;
             volume: root.volume;
+            artwork: root.artwork;
 
             toggle() => {
                 root.toggle-playback();

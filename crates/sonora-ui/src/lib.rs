@@ -12,7 +12,7 @@
 slint::include_modules!();
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -31,6 +31,8 @@ use tokio::sync::broadcast;
 const RECENT_LIMIT: usize = 8;
 const PAGE_LIMIT: i64 = 500;
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
+/// Transport artwork is tiny, so 96px is plenty even on a high-DPI screen.
+const ARTWORK_PX: u32 = 96;
 
 pub struct AppContext {
     pub db: Db,
@@ -302,8 +304,10 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         });
     }
 
-    let _playback_timer = engine.clone().map(|engine| {
-        attach_playback(&ui, weak.clone(), engine, lookup.clone());
+    let _timers = engine.clone().map(|engine| {
+        let playback = attach_playback(&ui, weak.clone(), engine.clone(), lookup.clone());
+        let artwork = wire_artwork(weak.clone(), ctx.db.clone(), handle.clone(), engine);
+        (playback, artwork)
     });
 
     listen_for_events(weak.clone(), ctx.events.subscribe(), handle.clone());
@@ -709,6 +713,67 @@ fn wire_lyrics(ui: &AppWindow, weak: Weak<AppWindow>, db: Db, handle: Handle, en
             request_lyrics(&weak, db.clone(), handle.clone(), track);
         });
     }
+}
+
+/// Cover art beside the transport controls.
+///
+/// Playback also moves on its own (gapless advance, the next button), so the
+/// artwork watches the engine's current track instead of a click callback.
+fn wire_artwork(weak: Weak<AppWindow>, db: Db, handle: Handle, engine: Arc<Engine>) -> Timer {
+    let timer = Timer::default();
+    let timer_weak = weak.clone();
+    let mut shown: Option<TrackId> = None;
+    timer.start(TimerMode::Repeated, Duration::from_millis(500), move || {
+        let Some(window) = timer_weak.upgrade() else {
+            return;
+        };
+
+        let current = engine.current();
+        if current == shown {
+            return;
+        }
+        shown = current;
+
+        match current {
+            Some(track) => request_artwork(&weak, db.clone(), handle.clone(), track),
+            None => window.set_artwork(slint::Image::default()),
+        }
+    });
+    timer
+}
+
+/// Decode the track's embedded cover off the UI thread and hand it over.
+fn request_artwork(weak: &Weak<AppWindow>, db: Db, handle: Handle, track: TrackId) {
+    let weak = weak.clone();
+    handle.spawn(async move {
+        let Some(view) = db.track(track).await.ok().flatten() else {
+            return;
+        };
+        let path = view.path.clone();
+        // `slint::Image` is not `Send`, so the decode returns plain pixels and the
+        // image is built on the UI thread.
+        let pixels = tokio::task::spawn_blocking(move || cover_pixels(&path))
+            .await
+            .ok()
+            .flatten();
+        let _ = weak.upgrade_in_event_loop(move |ui| {
+            let image = pixels.map_or_else(slint::Image::default, |(bytes, width, height)| {
+                slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
+                    &bytes, width, height,
+                ))
+            });
+            ui.set_artwork(image);
+        });
+    });
+}
+
+/// Downscaled RGBA pixels of the file's embedded cover. A missing cover is
+/// normal, so this returns `None` instead of an error.
+fn cover_pixels(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
+    let raw = sonora_artwork::extract_embedded(path).ok().flatten()?;
+    let decoded = image::load_from_memory(&raw).ok()?;
+    let thumb = decoded.thumbnail(ARTWORK_PX, ARTWORK_PX).to_rgba8();
+    Some((thumb.as_raw().clone(), thumb.width(), thumb.height()))
 }
 
 /// Show whatever lyrics the database already has for `track`.

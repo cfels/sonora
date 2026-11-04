@@ -5139,9 +5139,11 @@ name = "sonora-ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "image",
  "log",
  "slint",
  "slint-build",
+ "sonora-artwork",
  "sonora-core",
  "sonora-db",
  "sonora-metadata",

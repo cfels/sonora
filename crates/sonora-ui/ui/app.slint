@@ -6,16 +6,18 @@
 import { ScrollView, LineEdit, Slider } from "std-widgets.slint";
 
 global Palette {
-    out property <color> bg: #0b0b10;
-    out property <color> sidebar: #101017;
-    out property <color> panel: #15151f;
-    out property <color> panel-hover: #1d1d29;
-    out property <color> stroke: #23232f;
-    out property <color> text: #edecf4;
-    out property <color> muted: #8c8c9e;
-    out property <color> accent: #7f5af0;
-    out property <color> accent-hover: #8f6dff;
-    out property <color> accent-soft: #221b3d;
+    out property <color> bg: #121212;
+    out property <color> sidebar: #000000;
+    out property <color> panel: #181818;
+    out property <color> panel-hover: #282828;
+    out property <color> stroke: #2a2a2a;
+    out property <color> text: #ffffff;
+    out property <color> muted: #b3b3b3;
+    out property <color> accent: #1ed760;
+    out property <color> accent-hover: #1fdf64;
+    out property <color> accent-soft: #1a3d29;
+    // Spotify puts black text on the green, because white on #1ed760 is mush.
+    out property <color> accent-text: #000000;
 }
 
 export struct TrackRow {
@@ -42,8 +44,8 @@ component NavItem inherits Rectangle {
     callback clicked();
 
     height: 38px;
-    border-radius: 9px;
-    background: root.active ? Palette.accent-soft : (touch.has-hover ? Palette.panel-hover : transparent);
+    border-radius: 6px;
+    background: root.active ? Palette.panel-hover : (touch.has-hover ? #1a1a1a : transparent);
 
     touch := TouchArea {
         clicked => {
@@ -55,6 +57,7 @@ component NavItem inherits Rectangle {
         text: root.label;
         color: root.active ? Palette.text : Palette.muted;
         font-size: 14px;
+        font-weight: root.active ? 700 : 400;
         x: 14px;
         vertical-alignment: center;
     }
@@ -65,7 +68,7 @@ component StatCard inherits Rectangle {
     in property <string> caption;
 
     height: 86px;
-    border-radius: 14px;
+    border-radius: 8px;
     background: Palette.panel;
 
     VerticalLayout {
@@ -92,9 +95,9 @@ component ActionButton inherits Rectangle {
     in property <bool> primary: true;
     callback clicked();
 
-    height: 34px;
-    width: button-label.preferred-width + 32px;
-    border-radius: 9px;
+    height: 36px;
+    width: button-label.preferred-width + 36px;
+    border-radius: 18px;
     border-width: root.primary ? 0px : 1px;
     border-color: Palette.stroke;
     background: touch.has-hover ? (root.primary ? Palette.accent-hover : Palette.panel-hover) : (root.primary ? Palette.accent : Palette.panel);
@@ -107,9 +110,9 @@ component ActionButton inherits Rectangle {
 
     button-label := Text {
         text: root.label;
-        color: Palette.text;
+        color: root.primary ? Palette.accent-text : Palette.text;
         font-size: 13px;
-        font-weight: 500;
+        font-weight: 700;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -119,7 +122,7 @@ component EmptyState inherits Rectangle {
     in property <string> message;
 
     height: 130px;
-    border-radius: 14px;
+    border-radius: 8px;
     background: Palette.panel;
 
     Text {
@@ -141,8 +144,8 @@ component TrackRowItem inherits Rectangle {
     callback play-next(int);
     callback enqueue(int);
 
-    height: 54px;
-    border-radius: 8px;
+    height: 56px;
+    border-radius: 6px;
     background: touch.has-hover ? Palette.panel-hover : transparent;
 
     touch := TouchArea {
@@ -294,8 +297,10 @@ component TransportBar inherits Rectangle {
     callback queue-toggle();
     callback lyrics-toggle();
 
-    height: 78px;
-    background: Palette.panel;
+    height: 90px;
+    background: Palette.sidebar;
+    border-width: 1px;
+    border-color: Palette.stroke;
 
     HorizontalLayout {
         padding-left: 18px;
@@ -303,9 +308,9 @@ component TransportBar inherits Rectangle {
         spacing: 14px;
 
         Rectangle {
-            width: 52px;
-            height: 52px;
-            border-radius: 6px;
+            width: 56px;
+            height: 56px;
+            border-radius: 4px;
             background: Palette.stroke;
             clip: true;
 
@@ -326,6 +331,7 @@ component TransportBar inherits Rectangle {
                 text: root.title;
                 color: Palette.text;
                 font-size: 13px;
+                font-weight: 700;
                 overflow: elide;
             }
             Text {
@@ -630,8 +636,8 @@ component OnboardingOverlay inherits Rectangle {
         if root.step == 1 : Text {
             text: "Where is your music?";
             color: Palette.text;
-            font-size: 24px;
-            font-weight: 600;
+            font-size: 32px;
+            font-weight: 700;
         }
         if root.step == 1 : Text {
             text: "Point Sonora at one or more folders. Subfolders are included, and re-scanning only touches files that changed.";
@@ -665,8 +671,8 @@ component OnboardingOverlay inherits Rectangle {
         if root.step == 2 : Text {
             text: "Which files do you prefer?";
             color: Palette.text;
-            font-size: 24px;
-            font-weight: 600;
+            font-size: 32px;
+            font-weight: 700;
         }
         if root.step == 2 : Text {
             text: "This governs downloads, device sync and what the cache keeps. It never changes how files already in your library are played.";
@@ -708,8 +714,8 @@ component OnboardingOverlay inherits Rectangle {
         if root.step == 3 : Text {
             text: "Optional: Last.fm";
             color: Palette.text;
-            font-size: 24px;
-            font-weight: 600;
+            font-size: 32px;
+            font-weight: 700;
         }
         if root.step == 3 : Text {
             text: "Artwork, lyrics and metadata work without any key. A free Last.fm key only adds listener tags and scrobbling, and you can add it later in Settings.";

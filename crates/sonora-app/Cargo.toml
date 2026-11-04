@@ -1,0 +1,23 @@
+[package]
+name = "sonora-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "sonora"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+directories = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+sonora-artwork = { workspace = true }
+sonora-core = { workspace = true }
+sonora-db = { workspace = true }
+sonora-scan = { workspace = true }
+sonora-ui = { workspace = true }
+tokio = { workspace = true }

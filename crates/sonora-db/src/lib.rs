@@ -1,0 +1,898 @@
+//! SQLite persistence for the Sonora library.
+//!
+//! The pool is the only place that knows SQL. Callers get domain types from
+//! `sonora-core` back, so the UI and scanner never depend on the schema.
+
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::time::Duration;
+
+use sonora_core::{
+    sort_key, AlbumId, Error, FolderId, LibraryStats, Result, ScanReport, ScannedTrack, Settings,
+    TrackId, TrackView, SETTINGS_KEY,
+};
+use sqlx::sqlite::{
+    SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePool, SqlitePoolOptions,
+    SqliteRow, SqliteSynchronous,
+};
+use sqlx::Row;
+
+/// Result of storing one scanned track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpsertOutcome {
+    Imported(TrackId),
+    Updated(TrackId),
+    Unchanged(TrackId),
+}
+
+#[derive(Clone)]
+pub struct Db {
+    pool: SqlitePool,
+}
+
+const TRACK_COLUMNS: &str = "
+    t.id, t.title, ar.name AS artist_name, al.title AS album_title,
+    aar.name AS album_artist_name, t.track_no, t.disc_no, t.year,
+    t.duration_ms, t.codec, t.bitrate_kbps, t.file_size, t.added_at, t.path
+";
+
+const TRACK_FROM: &str = "
+    FROM tracks t
+    LEFT JOIN artists ar ON ar.id = t.artist_id
+    LEFT JOIN albums al ON al.id = t.album_id
+    LEFT JOIN artists aar ON aar.id = al.album_artist_id
+";
+
+/// Maps `sqlx` failures onto our own error type so callers can use `?`.
+trait SqlxExt<T> {
+    fn db(self) -> Result<T>;
+}
+
+impl<T> SqlxExt<T> for std::result::Result<T, sqlx::Error> {
+    fn db(self) -> Result<T> {
+        self.map_err(|err| Error::Database(err.to_string()))
+    }
+}
+
+impl Db {
+    /// Open (or create) the library database at `path`.
+    pub async fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|err| Error::io(parent, err))?;
+            }
+        }
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5));
+        Self::connect(options, 8).await
+    }
+
+    /// In-memory database used by tests.
+    pub async fn open_in_memory() -> Result<Self> {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .map_err(|err| Error::Database(err.to_string()))?
+            .foreign_keys(true);
+        // A single connection: separate connections would each get their own
+        // private in-memory database.
+        Self::connect(options, 1).await
+    }
+
+    async fn connect(options: SqliteConnectOptions, max_connections: u32) -> Result<Self> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(max_connections)
+            .connect_with(options)
+            .await
+            .db()?;
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .map_err(|err| Error::Database(format!("migration failed: {err}")))?;
+        Ok(Self { pool })
+    }
+
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
+
+    // ---------------------------------------------------------------- library
+
+    pub async fn stats(&self) -> Result<LibraryStats> {
+        let row = sqlx::query(
+            "SELECT
+                (SELECT COUNT(*) FROM tracks) AS tracks,
+                (SELECT COUNT(*) FROM albums) AS albums,
+                (SELECT COUNT(*) FROM artists) AS artists,
+                (SELECT COUNT(*) FROM genres) AS genres,
+                (SELECT COUNT(*) FROM library_folders) AS folders,
+                (SELECT COALESCE(SUM(duration_ms), 0) FROM tracks) AS total_duration_ms",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .db()?;
+
+        Ok(LibraryStats {
+            tracks: row.get("tracks"),
+            albums: row.get("albums"),
+            artists: row.get("artists"),
+            genres: row.get("genres"),
+            folders: row.get("folders"),
+            total_duration_ms: row.get("total_duration_ms"),
+        })
+    }
+
+    /// Most recently indexed tracks — the Home page's "Recently added" shelf.
+    pub async fn recently_added(&self, limit: i64) -> Result<Vec<TrackView>> {
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} {TRACK_FROM} ORDER BY t.added_at DESC, t.id DESC LIMIT ?1"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_track).collect())
+    }
+
+    pub async fn list_tracks(&self, limit: i64, offset: i64) -> Result<Vec<TrackView>> {
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} {TRACK_FROM}
+             ORDER BY COALESCE(aar.sort_name, ''), COALESCE(al.title, ''),
+                      t.disc_no, t.track_no, t.title
+             LIMIT ?1 OFFSET ?2"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_track).collect())
+    }
+
+    pub async fn track(&self, id: TrackId) -> Result<Option<TrackView>> {
+        let sql = format!("SELECT {TRACK_COLUMNS} {TRACK_FROM} WHERE t.id = ?1");
+        let row = sqlx::query(&sql)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .db()?;
+        Ok(row.as_ref().map(map_track))
+    }
+
+    /// Full-text search across title/artist/album, ranked by FTS5 relevance.
+    pub async fn search(&self, query: &str, limit: i64) -> Result<Vec<TrackView>> {
+        let Some(match_query) = fts_query(query) else {
+            return Ok(Vec::new());
+        };
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS}
+             FROM tracks_fts f
+             JOIN tracks t ON t.id = f.rowid
+             LEFT JOIN artists ar ON ar.id = t.artist_id
+             LEFT JOIN albums al ON al.id = t.album_id
+             LEFT JOIN artists aar ON aar.id = al.album_artist_id
+             WHERE tracks_fts MATCH ?1
+             ORDER BY rank
+             LIMIT ?2"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(match_query)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_track).collect())
+    }
+
+    pub async fn albums(&self) -> Result<Vec<AlbumSummary>> {
+        let rows = sqlx::query(
+            "SELECT al.id, al.title, aar.name AS album_artist, al.year,
+                    COUNT(t.id) AS track_count,
+                    COALESCE(SUM(t.duration_ms), 0) AS duration_ms
+             FROM albums al
+             JOIN artists aar ON aar.id = al.album_artist_id
+             LEFT JOIN tracks t ON t.album_id = al.id
+             GROUP BY al.id
+             ORDER BY aar.sort_name, al.year, al.title",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .db()?;
+        Ok(rows
+            .iter()
+            .map(|row| AlbumSummary {
+                id: row.get("id"),
+                title: row.get("title"),
+                album_artist: row.get("album_artist"),
+                year: row.try_get::<Option<i64>, _>("year").unwrap_or(None),
+                track_count: row.get("track_count"),
+                duration_ms: row.get("duration_ms"),
+            })
+            .collect())
+    }
+
+    // ------------------------------------------------------------- scan write
+
+    pub async fn add_folder(&self, path: &Path) -> Result<FolderId> {
+        let path = path.to_string_lossy().to_string();
+        sqlx::query("INSERT OR IGNORE INTO library_folders (path, added_at) VALUES (?1, ?2)")
+            .bind(&path)
+            .bind(now())
+            .execute(&self.pool)
+            .await
+            .db()?;
+        let row = sqlx::query("SELECT id FROM library_folders WHERE path = ?1")
+            .bind(&path)
+            .fetch_one(&self.pool)
+            .await
+            .db()?;
+        Ok(row.get("id"))
+    }
+
+    pub async fn folders(&self) -> Result<Vec<(FolderId, PathBuf)>> {
+        let rows = sqlx::query("SELECT id, path FROM library_folders ORDER BY path")
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows
+            .iter()
+            .map(|row| {
+                (
+                    row.get::<i64, _>("id"),
+                    PathBuf::from(row.get::<String, _>("path")),
+                )
+            })
+            .collect())
+    }
+
+    pub async fn remove_folder(&self, id: FolderId) -> Result<()> {
+        sqlx::query("DELETE FROM library_folders WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .db()?;
+        Ok(())
+    }
+
+    pub async fn begin_scan(&self) -> Result<i64> {
+        let result = sqlx::query("INSERT INTO scan_runs (started_at) VALUES (?1)")
+            .bind(now())
+            .execute(&self.pool)
+            .await
+            .db()?;
+        Ok(result.last_insert_rowid())
+    }
+
+    pub async fn finish_scan(
+        &self,
+        run_id: i64,
+        folder_id: FolderId,
+        report: &ScanReport,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await.db()?;
+        sqlx::query(
+            "UPDATE scan_runs SET finished_at = ?1, seen = ?2, imported = ?3,
+                    updated = ?4, removed = ?5, errors = ?6 WHERE id = ?7",
+        )
+        .bind(now())
+        .bind(report.seen as i64)
+        .bind(report.imported as i64)
+        .bind(report.updated as i64)
+        .bind(report.removed as i64)
+        .bind(report.total_errors() as i64)
+        .bind(run_id)
+        .execute(&mut *tx)
+        .await
+        .db()?;
+        sqlx::query("UPDATE library_folders SET last_scan_at = ?1 WHERE id = ?2")
+            .bind(now())
+            .bind(folder_id)
+            .execute(&mut *tx)
+            .await
+            .db()?;
+        tx.commit().await.db()?;
+        Ok(())
+    }
+
+    /// Store a batch of scanned tracks in one transaction.
+    pub async fn upsert_scanned(
+        &self,
+        folder_id: FolderId,
+        run_id: i64,
+        tracks: &[ScannedTrack],
+    ) -> Result<Vec<UpsertOutcome>> {
+        let mut tx = self.pool.begin().await.db()?;
+        let mut outcomes = Vec::with_capacity(tracks.len());
+
+        for track in tracks {
+            let path = track.path.to_string_lossy().to_string();
+            let existing =
+                sqlx::query("SELECT id, file_size, modified_at FROM tracks WHERE path = ?1")
+                    .bind(&path)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .db()?;
+
+            let artist_id = match track.artist.as_deref() {
+                Some(name) => Some(get_or_create_artist(&mut tx, name).await?),
+                None => None,
+            };
+
+            let album_artist_name = track
+                .effective_album_artist()
+                .unwrap_or("Unknown Artist")
+                .to_string();
+            let album_artist_id = get_or_create_artist(&mut tx, &album_artist_name).await?;
+
+            let album_id = if track.album.is_some() {
+                Some(
+                    get_or_create_album(
+                        &mut tx,
+                        track.effective_album(),
+                        album_artist_id,
+                        track.year,
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
+
+            let track_id = match &existing {
+                Some(row) => {
+                    let id: i64 = row.get("id");
+                    let same_size: i64 = row.get("file_size");
+                    let same_mtime: i64 = row.get("modified_at");
+                    if same_size == track.file_size as i64 && same_mtime == track.modified_at {
+                        sqlx::query("UPDATE tracks SET last_seen_scan = ?1 WHERE id = ?2")
+                            .bind(run_id)
+                            .bind(id)
+                            .execute(&mut *tx)
+                            .await
+                            .db()?;
+                        outcomes.push(UpsertOutcome::Unchanged(id));
+                        continue;
+                    }
+                    update_track(&mut tx, id, run_id, folder_id, track, artist_id, album_id)
+                        .await?;
+                    outcomes.push(UpsertOutcome::Updated(id));
+                    id
+                }
+                None => {
+                    let id = insert_track(&mut tx, run_id, folder_id, track, artist_id, album_id)
+                        .await?;
+                    outcomes.push(UpsertOutcome::Imported(id));
+                    id
+                }
+            };
+
+            // Genres and the search index are cheap to rebuild per track.
+            sqlx::query("DELETE FROM track_genres WHERE track_id = ?1")
+                .bind(track_id)
+                .execute(&mut *tx)
+                .await
+                .db()?;
+            for genre in &track.genres {
+                let genre_id = get_or_create_genre(&mut tx, genre).await?;
+                sqlx::query(
+                    "INSERT OR IGNORE INTO track_genres (track_id, genre_id) VALUES (?1, ?2)",
+                )
+                .bind(track_id)
+                .bind(genre_id)
+                .execute(&mut *tx)
+                .await
+                .db()?;
+            }
+
+            sqlx::query("DELETE FROM tracks_fts WHERE rowid = ?1")
+                .bind(track_id)
+                .execute(&mut *tx)
+                .await
+                .db()?;
+            sqlx::query(
+                "INSERT INTO tracks_fts (rowid, title, artist, album, album_artist)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .bind(track_id)
+            .bind(&track.title)
+            .bind(track.artist.as_deref().unwrap_or(""))
+            .bind(track.album.as_deref().unwrap_or(""))
+            .bind(&album_artist_name)
+            .execute(&mut *tx)
+            .await
+            .db()?;
+        }
+
+        tx.commit().await.db()?;
+        Ok(outcomes)
+    }
+
+    /// Delete rows for this folder that the latest scan did not touch, then
+    /// drop albums/artists left with no tracks.
+    pub async fn prune_missing(&self, folder_id: FolderId, run_id: i64) -> Result<u64> {
+        let mut tx = self.pool.begin().await.db()?;
+        let stale = sqlx::query(
+            "SELECT id FROM tracks WHERE folder_id = ?1 AND (last_seen_scan IS NULL OR last_seen_scan <> ?2)",
+        )
+        .bind(folder_id)
+        .bind(run_id)
+        .fetch_all(&mut *tx)
+        .await
+        .db()?;
+
+        for row in &stale {
+            let id: i64 = row.get("id");
+            sqlx::query("DELETE FROM tracks_fts WHERE rowid = ?1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .db()?;
+            sqlx::query("DELETE FROM tracks WHERE id = ?1")
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .db()?;
+        }
+
+        sqlx::query("DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL)")
+            .execute(&mut *tx)
+            .await
+            .db()?;
+        sqlx::query("DELETE FROM artists WHERE id NOT IN (SELECT artist_id FROM tracks WHERE artist_id IS NOT NULL) AND id NOT IN (SELECT album_artist_id FROM albums)")
+            .execute(&mut *tx)
+            .await
+            .db()?;
+
+        tx.commit().await.db()?;
+        Ok(stale.len() as u64)
+    }
+
+    // ---------------------------------------------------------------- settings
+
+    pub async fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await
+        .db()?;
+        Ok(())
+    }
+
+    pub async fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        let row = sqlx::query("SELECT value FROM settings WHERE key = ?1")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await
+            .db()?;
+        Ok(row.map(|row| row.get::<String, _>("value")))
+    }
+
+    /// Read the settings document.
+    ///
+    /// A missing document means "first run"; an unreadable one means someone
+    /// edited the database by hand, so log it and start from defaults rather
+    /// than refusing to open the application.
+    pub async fn load_settings(&self) -> Result<Settings> {
+        let Some(raw) = self.get_setting(SETTINGS_KEY).await? else {
+            return Ok(Settings::default());
+        };
+        match Settings::from_json(&raw) {
+            Ok(settings) => Ok(settings),
+            Err(err) => {
+                log::warn!("ignoring unreadable settings document: {err}");
+                Ok(Settings::default())
+            }
+        }
+    }
+
+    /// Persist settings, clamping them into range first so the database only
+    /// ever holds valid values.
+    pub async fn save_settings(&self, settings: &Settings) -> Result<()> {
+        let document = settings.clone().normalized().to_json();
+        self.set_setting(SETTINGS_KEY, &document).await
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlbumSummary {
+    pub id: AlbumId,
+    pub title: String,
+    pub album_artist: String,
+    pub year: Option<i64>,
+    pub track_count: i64,
+    pub duration_ms: i64,
+}
+
+fn now() -> i64 {
+    chrono::Utc::now().timestamp()
+}
+
+fn opt_string(row: &SqliteRow, column: &str) -> Option<String> {
+    row.try_get::<Option<String>, _>(column).unwrap_or(None)
+}
+
+fn map_track(row: &SqliteRow) -> TrackView {
+    TrackView {
+        id: row.get("id"),
+        title: row.get("title"),
+        artist: opt_string(row, "artist_name"),
+        album: opt_string(row, "album_title"),
+        album_artist: opt_string(row, "album_artist_name"),
+        track_no: row.try_get::<Option<i64>, _>("track_no").unwrap_or(None),
+        disc_no: row.try_get::<Option<i64>, _>("disc_no").unwrap_or(None),
+        year: row.try_get::<Option<i64>, _>("year").unwrap_or(None),
+        duration_ms: row.get("duration_ms"),
+        codec: row.get("codec"),
+        bitrate_kbps: row
+            .try_get::<Option<i64>, _>("bitrate_kbps")
+            .unwrap_or(None),
+        file_size: row.get("file_size"),
+        added_at: row.get("added_at"),
+        path: PathBuf::from(row.get::<String, _>("path")),
+    }
+}
+
+/// Turn a user query into a safe FTS5 expression.
+///
+/// Every token is quoted (so punctuation cannot inject query syntax) and gets a
+/// prefix `*`, which makes incremental typing match artists and albums early.
+fn fts_query(input: &str) -> Option<String> {
+    let tokens: Vec<String> = input
+        .split_whitespace()
+        .filter(|token| !token.is_empty())
+        .map(|token| {
+            let escaped = token.replace('"', "\"\"");
+            format!("\"{escaped}\"*")
+        })
+        .collect();
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(tokens.join(" AND "))
+    }
+}
+
+async fn get_or_create_artist(conn: &mut SqliteConnection, name: &str) -> Result<i64> {
+    let name = name.trim();
+    if let Some(id) = sqlx::query_scalar::<_, i64>("SELECT id FROM artists WHERE name = ?1")
+        .bind(name)
+        .fetch_optional(&mut *conn)
+        .await
+        .db()?
+    {
+        return Ok(id);
+    }
+    sqlx::query("INSERT INTO artists (name, sort_name) VALUES (?1, ?2)")
+        .bind(name)
+        .bind(sort_key(name))
+        .execute(&mut *conn)
+        .await
+        .db()?;
+    sqlx::query_scalar::<_, i64>("SELECT id FROM artists WHERE name = ?1")
+        .bind(name)
+        .fetch_one(&mut *conn)
+        .await
+        .db()
+}
+
+async fn get_or_create_album(
+    conn: &mut SqliteConnection,
+    title: &str,
+    album_artist_id: i64,
+    year: Option<i32>,
+) -> Result<i64> {
+    if let Some(id) = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM albums WHERE title = ?1 AND album_artist_id = ?2",
+    )
+    .bind(title)
+    .bind(album_artist_id)
+    .fetch_optional(&mut *conn)
+    .await
+    .db()?
+    {
+        return Ok(id);
+    }
+    sqlx::query("INSERT INTO albums (title, album_artist_id, year) VALUES (?1, ?2, ?3)")
+        .bind(title)
+        .bind(album_artist_id)
+        .bind(year)
+        .execute(&mut *conn)
+        .await
+        .db()?;
+    sqlx::query_scalar::<_, i64>("SELECT id FROM albums WHERE title = ?1 AND album_artist_id = ?2")
+        .bind(title)
+        .bind(album_artist_id)
+        .fetch_one(&mut *conn)
+        .await
+        .db()
+}
+
+async fn get_or_create_genre(conn: &mut SqliteConnection, name: &str) -> Result<i64> {
+    let name = name.trim();
+    if let Some(id) = sqlx::query_scalar::<_, i64>("SELECT id FROM genres WHERE name = ?1")
+        .bind(name)
+        .fetch_optional(&mut *conn)
+        .await
+        .db()?
+    {
+        return Ok(id);
+    }
+    sqlx::query("INSERT INTO genres (name) VALUES (?1)")
+        .bind(name)
+        .execute(&mut *conn)
+        .await
+        .db()?;
+    sqlx::query_scalar::<_, i64>("SELECT id FROM genres WHERE name = ?1")
+        .bind(name)
+        .fetch_one(&mut *conn)
+        .await
+        .db()
+}
+
+async fn insert_track(
+    conn: &mut SqliteConnection,
+    run_id: i64,
+    folder_id: FolderId,
+    track: &ScannedTrack,
+    artist_id: Option<i64>,
+    album_id: Option<i64>,
+) -> Result<i64> {
+    let result = sqlx::query(
+        "INSERT INTO tracks
+            (path, folder_id, title, artist_id, album_id, track_no, disc_no, year,
+             duration_ms, bitrate_kbps, sample_rate, channels, codec, file_size,
+             added_at, modified_at, last_seen_scan)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+    )
+    .bind(track.path.to_string_lossy().to_string())
+    .bind(folder_id)
+    .bind(&track.title)
+    .bind(artist_id)
+    .bind(album_id)
+    .bind(track.track_no.map(|value| value as i64))
+    .bind(track.disc_no.map(|value| value as i64))
+    .bind(track.year.map(|value| value as i64))
+    .bind(track.duration_ms as i64)
+    .bind(track.bitrate_kbps.map(|value| value as i64))
+    .bind(track.sample_rate.map(|value| value as i64))
+    .bind(track.channels.map(|value| value as i64))
+    .bind(&track.codec)
+    .bind(track.file_size as i64)
+    .bind(now())
+    .bind(track.modified_at)
+    .bind(run_id)
+    .execute(&mut *conn)
+    .await
+    .db()?;
+    Ok(result.last_insert_rowid())
+}
+
+async fn update_track(
+    conn: &mut SqliteConnection,
+    id: i64,
+    run_id: i64,
+    folder_id: FolderId,
+    track: &ScannedTrack,
+    artist_id: Option<i64>,
+    album_id: Option<i64>,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE tracks SET
+            folder_id = ?2, title = ?3, artist_id = ?4, album_id = ?5, track_no = ?6,
+            disc_no = ?7, year = ?8, duration_ms = ?9, bitrate_kbps = ?10,
+            sample_rate = ?11, channels = ?12, codec = ?13, file_size = ?14,
+            modified_at = ?15, last_seen_scan = ?16
+         WHERE id = ?1",
+    )
+    .bind(id)
+    .bind(folder_id)
+    .bind(&track.title)
+    .bind(artist_id)
+    .bind(album_id)
+    .bind(track.track_no.map(|value| value as i64))
+    .bind(track.disc_no.map(|value| value as i64))
+    .bind(track.year.map(|value| value as i64))
+    .bind(track.duration_ms as i64)
+    .bind(track.bitrate_kbps.map(|value| value as i64))
+    .bind(track.sample_rate.map(|value| value as i64))
+    .bind(track.channels.map(|value| value as i64))
+    .bind(&track.codec)
+    .bind(track.file_size as i64)
+    .bind(track.modified_at)
+    .bind(run_id)
+    .execute(&mut *conn)
+    .await
+    .db()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn track(path: &str, title: &str, artist: &str, album: &str) -> ScannedTrack {
+        ScannedTrack {
+            path: PathBuf::from(path),
+            title: title.to_string(),
+            artist: Some(artist.to_string()),
+            album_artist: Some(artist.to_string()),
+            album: Some(album.to_string()),
+            genres: vec!["Electronic".to_string()],
+            track_no: Some(1),
+            disc_no: Some(1),
+            year: Some(1999),
+            duration_ms: 180_000,
+            bitrate_kbps: Some(320),
+            sample_rate: Some(44_100),
+            channels: Some(2),
+            codec: "MP3".to_string(),
+            file_size: 1024,
+            modified_at: 1_700_000_000,
+        }
+    }
+
+    #[tokio::test]
+    async fn stores_and_counts_tracks() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+
+        let outcomes = db
+            .upsert_scanned(
+                folder,
+                run,
+                &[
+                    track("/music/a.mp3", "Windowlicker", "Aphex Twin", "Windowlicker"),
+                    track(
+                        "/music/b.mp3",
+                        "Xtal",
+                        "Aphex Twin",
+                        "Selected Ambient Works",
+                    ),
+                ],
+            )
+            .await
+            .unwrap();
+        assert!(matches!(outcomes[0], UpsertOutcome::Imported(_)));
+
+        let stats = db.stats().await.unwrap();
+        assert_eq!(stats.tracks, 2);
+        assert_eq!(stats.albums, 2);
+        assert_eq!(stats.artists, 1);
+        assert_eq!(stats.genres, 1);
+        assert_eq!(stats.total_duration_ms, 360_000);
+    }
+
+    #[tokio::test]
+    async fn rescanning_same_file_is_unchanged() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let item = track("/music/a.mp3", "Xtal", "Aphex Twin", "SAW");
+        db.upsert_scanned(folder, run, std::slice::from_ref(&item))
+            .await
+            .unwrap();
+
+        let run2 = db.begin_scan().await.unwrap();
+        let outcomes = db.upsert_scanned(folder, run2, &[item]).await.unwrap();
+        assert!(matches!(outcomes[0], UpsertOutcome::Unchanged(_)));
+        assert_eq!(db.stats().await.unwrap().tracks, 1);
+    }
+
+    #[tokio::test]
+    async fn prune_removes_unseen_tracks_and_orphans() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        db.upsert_scanned(
+            folder,
+            run,
+            &[
+                track("/music/a.mp3", "Xtal", "Aphex Twin", "SAW"),
+                track(
+                    "/music/b.mp3",
+                    "Roygbiv",
+                    "Boards of Canada",
+                    "Music Has the Right",
+                ),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let run2 = db.begin_scan().await.unwrap();
+        db.upsert_scanned(
+            folder,
+            run2,
+            &[track("/music/a.mp3", "Xtal", "Aphex Twin", "SAW")],
+        )
+        .await
+        .unwrap();
+        let removed = db.prune_missing(folder, run2).await.unwrap();
+
+        assert_eq!(removed, 1);
+        let stats = db.stats().await.unwrap();
+        assert_eq!(stats.tracks, 1);
+        assert_eq!(stats.artists, 1);
+        assert_eq!(stats.albums, 1);
+    }
+
+    #[tokio::test]
+    async fn search_matches_prefix_and_is_injection_safe() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        db.upsert_scanned(
+            folder,
+            run,
+            &[
+                track("/music/a.mp3", "Windowlicker", "Aphex Twin", "Windowlicker"),
+                track("/music/b.mp3", "Xtal", "Aphex Twin", "SAW 85-92"),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let hits = db.search("aphex", 10).await.unwrap();
+        assert_eq!(hits.len(), 2);
+
+        let hits = db.search("window", 10).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].title, "Windowlicker");
+
+        // Quotes and operators must be treated as literal text, not syntax.
+        assert!(db.search("\" OR 1=1 --", 10).await.is_ok());
+        assert!(db.search("   ", 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn settings_round_trip() {
+        let db = Db::open_in_memory().await.unwrap();
+        assert_eq!(db.get_setting("theme").await.unwrap(), None);
+        db.set_setting("theme", "dark").await.unwrap();
+        db.set_setting("theme", "light").await.unwrap();
+        assert_eq!(
+            db.get_setting("theme").await.unwrap(),
+            Some("light".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn settings_default_when_absent_and_persist_when_saved() {
+        let db = Db::open_in_memory().await.unwrap();
+        assert_eq!(db.load_settings().await.unwrap(), Settings::default());
+
+        let settings = Settings {
+            format: sonora_core::FormatPreference::new(sonora_core::FormatTier::Lossy, 256),
+            // Below the minimum, so saving must clamp it.
+            cache_limit_bytes: 1,
+            ..Settings::default()
+        };
+        db.save_settings(&settings).await.unwrap();
+
+        let loaded = db.load_settings().await.unwrap();
+        assert_eq!(loaded.format.tier, sonora_core::FormatTier::Lossy);
+        assert_eq!(loaded.format.max_bitrate_kbps, 256);
+        assert_eq!(
+            loaded.cache_limit_bytes,
+            sonora_core::settings::MIN_CACHE_LIMIT_BYTES
+        );
+    }
+
+    #[tokio::test]
+    async fn unreadable_settings_fall_back_to_defaults() {
+        let db = Db::open_in_memory().await.unwrap();
+        db.set_setting(SETTINGS_KEY, "{ not json").await.unwrap();
+        assert_eq!(db.load_settings().await.unwrap(), Settings::default());
+    }
+}

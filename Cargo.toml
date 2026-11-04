@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sonora-core",
+    "crates/sonora-db",
+    "crates/sonora-scan",
+    "crates/sonora-artwork",
+    "crates/sonora-playback",
+    "crates/sonora-ui",
+    "crates/sonora-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/takyon303/sonora"
+authors = ["Sonora contributors"]
+
+[workspace.dependencies]
+sonora-core = { path = "crates/sonora-core" }
+sonora-db = { path = "crates/sonora-db" }
+sonora-scan = { path = "crates/sonora-scan" }
+sonora-artwork = { path = "crates/sonora-artwork" }
+sonora-playback = { path = "crates/sonora-playback" }
+sonora-ui = { path = "crates/sonora-ui" }
+
+anyhow = "1"
+blake3 = "1"
+chrono = { version = "0.4", features = ["serde"] }
+directories = "6"
+env_logger = "0.11"
+gstreamer = "0.25"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+log = "0.4"
+lofty = "0.25"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+slint = "1.18"
+slint-build = "1.18"
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    "macros",
+    "migrate",
+    "chrono",
+] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+walkdir = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

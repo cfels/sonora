@@ -24,6 +24,8 @@ Sonora is under active development. What works today:
   Last.fm tags when a key is configured.
 - Settings screen for the format preference and bitrate ceiling, cache budget,
   artwork format and quality, folder template and the Last.fm key.
+- First-run onboarding (folders, format, optional Last.fm) that can be replayed
+  from settings.
 
 Supported platforms: **Windows**, **Linux** and **Android**. Android is a
 first-class target, but its build harness and touch layout are still being

@@ -162,7 +162,14 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         handle.spawn(async move {
             match db.load_settings().await {
                 Ok(settings) => {
-                    let _ = weak.upgrade_in_event_loop(move |ui| apply_settings(&ui, &settings));
+                    let first_run = !settings.onboarding_completed;
+                    let _ = weak.upgrade_in_event_loop(move |ui| {
+                        apply_settings(&ui, &settings);
+                        if first_run {
+                            ui.set_onboarding_step(0);
+                            ui.set_onboarding_open(true);
+                        }
+                    });
                 }
                 Err(err) => log::error!("could not load settings: {err}"),
             }
@@ -214,6 +221,82 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                 });
             },
         );
+    }
+
+    {
+        let weak = weak.clone();
+        ui.on_onboarding_next(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_onboarding_step((ui.get_onboarding_step() + 1).min(3));
+            }
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        ui.on_onboarding_back(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_onboarding_step((ui.get_onboarding_step() - 1).max(0));
+            }
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = ctx.db.clone();
+        let handle = handle.clone();
+        ui.on_onboarding_finish(move || {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let tier = window.get_settings_format_tier().to_string();
+            let bitrate = window.get_settings_bitrate();
+            let lastfm = window.get_settings_lastfm_key().to_string();
+
+            let weak = weak.clone();
+            let db = db.clone();
+            handle.spawn(async move {
+                let base = db.load_settings().await.unwrap_or_default();
+                let settings = onboarding_outcome(base, &tier, bitrate, &lastfm);
+                match db.save_settings(&settings).await {
+                    Ok(()) => {
+                        let saved = settings.clone();
+                        let _ = weak.upgrade_in_event_loop(move |ui| {
+                            apply_settings(&ui, &saved);
+                            ui.set_onboarding_open(false);
+                            ui.set_status("Setup complete — add more folders any time.".into());
+                        });
+                    }
+                    Err(err) => {
+                        log::error!("could not save onboarding settings: {err}");
+                        set_status(&weak, format!("Could not save setup: {err}"));
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = ctx.db.clone();
+        let handle = handle.clone();
+        ui.on_run_onboarding(move || {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            handle.spawn(async move {
+                match db.load_settings().await {
+                    Ok(settings) => {
+                        let _ = weak.upgrade_in_event_loop(move |ui| {
+                            apply_settings(&ui, &settings);
+                            ui.set_onboarding_step(0);
+                            ui.set_onboarding_open(true);
+                        });
+                    }
+                    Err(err) => log::error!("could not reload settings for onboarding: {err}"),
+                }
+            });
+        });
     }
 
     let _playback_timer = engine.clone().map(|engine| {
@@ -566,6 +649,25 @@ fn listen_for_events(
     });
 }
 
+/// Apply the choices made in the onboarding flow to the stored settings.
+///
+/// The flow only owns three things: the format preference, the ceiling and the
+/// Last.fm key. Everything else in the document is preserved, so running setup
+/// again from Settings cannot wipe the cache budget or the folder template.
+fn onboarding_outcome(mut base: Settings, tier: &str, bitrate: i32, lastfm: &str) -> Settings {
+    base.format = FormatPreference::new(
+        if tier == "lossy" {
+            FormatTier::Lossy
+        } else {
+            FormatTier::Lossless
+        },
+        bitrate.max(0) as u32,
+    );
+    base.lastfm_api_key = Some(lastfm.to_string());
+    base.onboarding_completed = true;
+    base.normalized()
+}
+
 /// Show the stored settings in the settings page.
 fn apply_settings(ui: &AppWindow, settings: &Settings) {
     ui.set_settings_format_tier(
@@ -720,6 +822,30 @@ mod tests {
         let visible = vec![10, 20, 30, 40];
         assert_eq!(queue_from(&visible, 30), Some(vec![30, 40]));
         assert_eq!(queue_from(&visible, 30).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn onboarding_keeps_settings_it_does_not_own() {
+        let base = Settings {
+            cache_limit_bytes: 8 * 1024 * 1024 * 1024,
+            folder_template: FolderTemplate::new("{artist}/{title}"),
+            ..Settings::default()
+        };
+
+        let finished = onboarding_outcome(base, "lossy", 192, "  key123 ");
+        assert!(finished.onboarding_completed);
+        assert_eq!(finished.format.tier, FormatTier::Lossy);
+        assert_eq!(finished.format.max_bitrate_kbps, 192);
+        assert_eq!(finished.lastfm_api_key.as_deref(), Some("key123"));
+        assert_eq!(finished.cache_limit_bytes, 8 * 1024 * 1024 * 1024);
+        assert_eq!(finished.folder_template.as_str(), "{artist}/{title}");
+    }
+
+    #[test]
+    fn onboarding_clamps_a_stray_ceiling_and_blank_key() {
+        let finished = onboarding_outcome(Settings::default(), "lossless", 9_000, "   ");
+        assert_eq!(finished.format.max_bitrate_kbps, 1411);
+        assert_eq!(finished.lastfm_api_key, None);
     }
 
     #[test]

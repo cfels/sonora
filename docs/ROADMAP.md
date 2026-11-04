@@ -144,10 +144,14 @@ Acceptance: on a physical Android device, pick a folder in the system picker,
 scan it, play a track gaplessly with the screen off, and get the same queue back
 after the app is killed and reopened.
 
-## Phase 7 — Polish
+## Phase 7 — Polish (in progress)
 
-- First-run onboarding (folders, format preference, Last.fm, sharing notice,
-  device setup) plus a "run onboarding again" button in settings.
+Delivered:
+
+- First-run onboarding: welcome, music folders, format preference and the
+  optional Last.fm key, skippable at every step, plus **Run onboarding again** in
+  settings. The Soulseek sharing notice and device setup join the flow when
+  those features exist, rather than being shown before they mean anything.
 - Packaging: Windows installer, Linux AppImage/Flatpak, signed Android APK/AAB.
 - Keyboard shortcuts, accessibility pass, error reporting, performance work.
 - Format coverage validation against a real test corpus.

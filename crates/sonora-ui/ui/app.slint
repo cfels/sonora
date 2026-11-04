@@ -501,6 +501,194 @@ component QueuePanel inherits Rectangle {
     }
 }
 
+component OnboardingOverlay inherits Rectangle {
+    in property <int> step: 0;
+    in property <string> folder-path: "";
+    in property <int> folder-count: 0;
+    in property <string> format-tier: "lossless";
+    in property <int> bitrate: 320;
+    in property <string> lastfm-key: "";
+
+    callback next();
+    callback back();
+    callback finish();
+    callback folder-path-changed(string);
+    callback add-folder(string);
+    callback tier-changed(string);
+    callback bitrate-changed(int);
+    callback lastfm-changed(string);
+
+    background: Palette.bg;
+
+    VerticalLayout {
+        padding: 64px;
+        spacing: 18px;
+
+        Text {
+            text: "SONORA";
+            color: Palette.muted;
+            font-size: 12px;
+            letter-spacing: 2px;
+        }
+
+        if root.step == 0 : Text {
+            text: "Welcome";
+            color: Palette.text;
+            font-size: 30px;
+            font-weight: 600;
+        }
+        if root.step == 0 : Text {
+            text: "Sonora plays the files you already own: no account, no subscription, no web view. It indexes your folders, reads the tags, and keeps the library in a local database.";
+            color: Palette.muted;
+            font-size: 14px;
+            wrap: word-wrap;
+        }
+
+        if root.step == 1 : Text {
+            text: "Where is your music?";
+            color: Palette.text;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        if root.step == 1 : Text {
+            text: "Point Sonora at one or more folders. Subfolders are included, and re-scanning only touches files that changed.";
+            color: Palette.muted;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        if root.step == 1 : HorizontalLayout {
+            spacing: 10px;
+            LineEdit {
+                text: root.folder-path;
+                placeholder-text: "/home/you/Music";
+                edited(text) => {
+                    root.folder-path-changed(text);
+                }
+                horizontal-stretch: 1;
+            }
+            ActionButton {
+                label: "Add folder";
+                clicked => {
+                    root.add-folder(root.folder-path);
+                }
+            }
+        }
+        if root.step == 1 : Text {
+            text: "\{root.folder-count} folders indexed so far.";
+            color: Palette.muted;
+            font-size: 12px;
+        }
+
+        if root.step == 2 : Text {
+            text: "Which files do you prefer?";
+            color: Palette.text;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        if root.step == 2 : Text {
+            text: "This governs downloads, device sync and what the cache keeps. It never changes how files already in your library are played.";
+            color: Palette.muted;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        if root.step == 2 : HorizontalLayout {
+            spacing: 10px;
+            ActionButton {
+                label: "Lossless";
+                primary: root.format-tier == "lossless";
+                clicked => {
+                    root.tier-changed("lossless");
+                }
+            }
+            ActionButton {
+                label: "Lossy";
+                primary: root.format-tier == "lossy";
+                clicked => {
+                    root.tier-changed("lossy");
+                }
+            }
+        }
+        if root.step == 2 : Text {
+            text: "Bitrate ceiling: \{root.bitrate} kbit/s — a maximum, never a target.";
+            color: Palette.muted;
+            font-size: 12px;
+        }
+        if root.step == 2 : Slider {
+            minimum: 32;
+            maximum: 1411;
+            value: root.bitrate;
+            changed(value) => {
+                root.bitrate-changed(round(value));
+            }
+        }
+
+        if root.step == 3 : Text {
+            text: "Optional: Last.fm";
+            color: Palette.text;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        if root.step == 3 : Text {
+            text: "Artwork, lyrics and metadata work without any key. A free Last.fm key only adds listener tags and scrobbling, and you can add it later in Settings.";
+            color: Palette.muted;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        if root.step == 3 : LineEdit {
+            text: root.lastfm-key;
+            placeholder-text: "Last.fm API key (optional)";
+            edited(text) => {
+                root.lastfm-changed(text);
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+        }
+
+        Text {
+            text: "Step \{root.step + 1} of 4";
+            color: Palette.muted;
+            font-size: 11px;
+        }
+
+        HorizontalLayout {
+            spacing: 10px;
+
+            if root.step > 0 : ActionButton {
+                label: "Back";
+                primary: false;
+                clicked => {
+                    root.back();
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+
+            ActionButton {
+                label: "Skip setup";
+                primary: false;
+                clicked => {
+                    root.finish();
+                }
+            }
+
+            ActionButton {
+                label: root.step >= 3 ? "Finish" : "Continue";
+                clicked => {
+                    if (root.step >= 3) {
+                        root.finish();
+                    } else {
+                        root.next();
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "Sonora";
     preferred-width: 1240px;
@@ -534,6 +722,8 @@ export component AppWindow inherits Window {
     in property <float> volume: 1.0;
     in property <[QueueRow]> queue-entries;
     in-out property <bool> queue-open: false;
+    in-out property <bool> onboarding-open: false;
+    in-out property <int> onboarding-step: 0;
 
     in-out property <string> settings-format-tier: "lossless";
     in-out property <int> settings-bitrate: 320;
@@ -559,10 +749,15 @@ export component AppWindow inherits Window {
     callback queue-move(int, int);
     callback queue-remove(int);
     callback save-settings(string, int, int, string, int, string, string);
+    callback onboarding-next();
+    callback onboarding-back();
+    callback onboarding-finish();
+    callback run-onboarding();
 
     private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "settings" ? "Settings" : "Library folders";
 
-    VerticalLayout {
+    Rectangle {
+        VerticalLayout {
         HorizontalLayout {
             // -------------------------------------------------------- sidebar
             Rectangle {
@@ -930,6 +1125,13 @@ export component AppWindow inherits Window {
                                     root.save-settings(root.settings-format-tier, root.settings-bitrate, root.settings-cache-mib, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key);
                                 }
                             }
+                            ActionButton {
+                                label: "Run onboarding again";
+                                primary: false;
+                                clicked => {
+                                    root.run-onboarding();
+                                }
+                            }
                             Text {
                                 text: root.status;
                                 color: Palette.muted;
@@ -1083,6 +1285,46 @@ export component AppWindow inherits Window {
             }
             queue-toggle() => {
                 root.queue-open = !root.queue-open;
+            }
+        }
+        }
+
+        if root.onboarding-open : OnboardingOverlay {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+
+            step: root.onboarding-step;
+            folder-path: root.folder-path;
+            folder-count: root.folders.length;
+            format-tier: root.settings-format-tier;
+            bitrate: root.settings-bitrate;
+            lastfm-key: root.settings-lastfm-key;
+
+            folder-path-changed(text) => {
+                root.folder-path = text;
+            }
+            add-folder(path) => {
+                root.add-folder(path);
+            }
+            tier-changed(tier) => {
+                root.settings-format-tier = tier;
+            }
+            bitrate-changed(value) => {
+                root.settings-bitrate = value;
+            }
+            lastfm-changed(key) => {
+                root.settings-lastfm-key = key;
+            }
+            next() => {
+                root.onboarding-next();
+            }
+            back() => {
+                root.onboarding-back();
+            }
+            finish() => {
+                root.onboarding-finish();
             }
         }
     }

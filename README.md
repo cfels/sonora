@@ -6,22 +6,31 @@ bundled browser.
 
 ## Status
 
-Sonora is under active development. What works right now (phase 1):
+Sonora is under active development. What works today:
 
 - Recursive library scanning of MP3, FLAC, M4A/AAC, OGG, Opus, WAV, AIFF,
   WavPack, Monkey's Audio, Musepack and WMA files.
 - Tag extraction via `lofty`, with file-name fallback only when tags are absent.
 - Incremental rescans: unchanged files are skipped, deleted files are pruned.
 - SQLite library with FTS5 search, album/artist aggregation and library stats.
-- Slint shell: Home, Tracks, Albums and Library folders.
+- Slint shell: Home, Tracks, Albums and Library folders, plus a transport bar,
+  per-row play/queue actions and a drag-reorderable queue panel.
+- GStreamer playback over `playbin`: play/pause, previous/next, seek, volume and
+  gapless handover between queued tracks.
+- Artwork pipeline: embedded-cover extraction, JPEG/PNG conversion with a size
+  cap, `cover.jpg` export and a content-addressed cache.
+- Keyless metadata and lyrics: MusicBrainz and Cover Art Archive, Deezer and
+  iTunes artwork fallbacks, LRCLIB lyrics (synced and plain), all cached;
+  Last.fm tags when a key is configured.
 
 Supported platforms: **Windows**, **Linux** and **Android**. Android is a
 first-class target, but its build harness and touch layout are still being
 built, so today only the desktop targets produce a runnable binary; the plan and
 acceptance criteria are in the [Android track](docs/ROADMAP.md#android-track-parallel-from-phase-2).
 
-Playback, artwork management, Last.fm, Discord, lyrics, device sync and
-downloads are planned and documented in [docs/ROADMAP.md](docs/ROADMAP.md).
+Last.fm scrobbling, Discord presence, the artwork review screen, device sync,
+downloads and the Android build harness are planned and documented in
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Building
 

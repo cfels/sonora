@@ -1,7 +1,9 @@
 # Sonora architecture
 
-Status: phase 1 implemented. Sections marked *(planned)* describe modules that
-are designed but not yet written.
+Status: phase 1 complete; phase 2 (playback, transport, queue) and the first
+slices of phases 3 and 4 (artwork, keyless metadata, lyrics) are implemented.
+Sections marked *(planned)* describe modules that are designed but not yet
+written.
 
 ## Guiding constraint
 
@@ -61,6 +63,9 @@ sonora/
 │   ├── sonora-core/          domain types, errors, engine→UI events, helpers
 │   ├── sonora-db/            SQLite (sqlx) pool, migrations, repositories
 │   ├── sonora-scan/          recursive walker, tag extraction, incremental ingest
+│   ├── sonora-playback/      GStreamer engine, transport and queue over core::Queue
+│   ├── sonora-artwork/       embedded extraction, conversion, cover export, store
+│   ├── sonora-metadata/      keyless providers, LRCLIB lyrics, Last.fm, cache
 │   ├── sonora-ui/            Slint markup + the bridge that feeds it
 │   └── sonora-app/           binary: wiring, paths, CLI, logging
 └── docs/
@@ -70,15 +75,17 @@ Dependency direction is strictly one-way:
 
 ```
 sonora-app → sonora-ui → sonora-scan → sonora-db → sonora-core
+sonora-ui → sonora-playback → sonora-core
+sonora-app → sonora-artwork, sonora-metadata → sonora-core
 ```
 
 No crate may depend "upward": the database never knows about Slint, the UI never
 issues SQL, and the scanner never touches widgets. This is what lets playback,
 Last.fm, artwork and device sync be added without rewriting the shell.
 
-*(planned)* `sonora-playback`, `sonora-metadata`, `sonora-artwork`,
-`sonora-services`, `sonora-device` and `sonora-soulseek` slot in beside these,
-each depending on `sonora-core` and (where they persist data) `sonora-db`.
+*(planned)* `sonora-services` (Last.fm scrobbling, Discord presence),
+`sonora-device` (sync) and `sonora-soulseek` slot in beside these, each
+depending on `sonora-core` and (where they persist data) `sonora-db`.
 
 ## Threading model
 
@@ -95,7 +102,7 @@ each depending on `sonora-core` and (where they persist data) `sonora-db`.
 - Search responses carry a generation number; a stale result is discarded, so
   fast typing cannot display an older query's rows.
 
-## Data model (migration `0001_init.sql`)
+## Data model (migrations `0001_init.sql`, `0002_lyrics.sql`)
 
 | Table | Purpose |
 |---|---|
@@ -105,6 +112,7 @@ each depending on `sonora-core` and (where they persist data) `sonora-db`.
 | `tracks` | One row per file; `path` unique; technical metadata inline |
 | `genres`, `track_genres` | Many-to-many; a file tagged "Rock; Pop" gets both |
 | `tracks_fts` | FTS5 index over title/artist/album/album artist |
+| `lyrics` | Fetched lyrics per track (plain + LRC), cascading on delete |
 | `settings` | Typed key/value store (JSON values) |
 | `scan_runs` | Audit trail: what each scan did |
 
@@ -154,9 +162,10 @@ data: SQLite remains the single source of truth.
 
 ## Deliberate open decisions
 
-- **Gapless playback** will drive `playbin3` directly (queue the next URI on
-  `about-to-finish`) rather than use `GstPlayer`, because Sonora needs precise
-  queue semantics. Recorded as an ADR when playback lands.
+- **Gapless playback drives `playbin`**, not `playbin3`: `playbin3` has no
+  `about-to-finish` signal, and that signal is what makes the handover exact.
+  `GstPlayer` is rejected for the same reason — it does not expose the queue
+  semantics Sonora needs.
 - **ReplayGain** will be read from tags and applied by the engine, with
   `rgvolume` only as an analysis fallback.
 - **Artwork** will be content-addressed (blake3 → cached JPEG renditions) so the

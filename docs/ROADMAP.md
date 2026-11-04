@@ -24,20 +24,27 @@ Delivered:
 Acceptance: scanning a folder twice imports then reports everything unchanged;
 deleting a file removes it from the library on the next scan. ✅
 
-## Phase 2 — Playback and library
+## Phase 2 — Playback and library (in progress)
 
-- `sonora-playback`: GStreamer engine (`playbin3`, explicit queue, gapless via
-  `about-to-finish`), seek/volume, device selection, ReplayGain from tags,
-  persisted queue.
+Delivered:
+
+- `sonora-playback`: GStreamer engine over `playbin` (not `playbin3`, which has
+  no `about-to-finish`), gapless handover, play/pause/stop, previous/next, seek,
+  volume, the full queue API and a caller-supplied track resolver.
 - Apple-Music-style queue rules (shuffle only upcoming, play next, add to queue,
-  drag reorder, repeat off/all/one) — logic and tests already landed in
-  `sonora-core::queue`; this phase drives it from the engine and the queue panel.
-- Settings document persisted in SQLite: format preference and bitrate ceiling,
-  cache budget and folder, download folder, folder template, artwork
-  format/quality, sync opt-in and onboarding flag, inspectable with
-  `sonora --settings`.
+  drag reorder, repeat off/all/one), tested in `sonora-core::queue`.
+- Transport bar (track, play/pause, previous/next, click-to-seek, volume),
+  per-row play/Next/Add actions and a drag-reorderable queue panel.
+
+Still open:
+
+- Device selection, ReplayGain from tags, persisted queue across restarts.
+- A settings screen that edits the document: format preference and bitrate
+  ceiling, cache budget and folder, download folder, folder template, artwork
+  format/quality, sync opt-in and onboarding flag. The document and its clamping
+  already exist and `sonora --settings` prints it.
 - Play counts, ratings, favourites, skip tracking, history.
-- Album and artist detail views, artwork placeholders, queue panel.
+- Album and artist detail views, and artwork in the rows instead of placeholders.
 - Custom playlists and smart playlists with a rule editor.
 - MPRIS (Linux) and SMTC (Windows) media controls; Android uses its platform
   media session instead (see the Android track).
@@ -45,25 +52,41 @@ deleting a file removes it from the library on the next scan. ✅
 Acceptance: playback survives restart with its queue; play counts and history
 are written per track; a smart playlist updates live as rules change.
 
-## Phase 3 — Artwork
+## Phase 3 — Artwork (in progress)
 
-- Embedded artwork extraction, content-addressed cache and renditions.
-- Batch PNG/WebP → JPEG with configurable quality, max dimension, alpha
-  flattening; resumable and idempotent.
-- Candidate review UI; nothing is replaced without explicit approval.
-- Embedded artwork writing, external `cover.jpg` export, Rockbox layout.
+Delivered:
+
+- Embedded artwork extraction, JPEG/PNG conversion with configurable quality and
+  max dimension, alpha flattened onto white, `cover.jpg`/`cover.png` export that
+  never replaces an existing cover without approval, blake3 content-addressed
+  store, batch report.
+
+Still open:
+
+- Candidate review UI, embedded artwork writing, Rockbox layout.
 
 Acceptance: a 2 000-album library converts without corrupting any tag, and the
 review screen shows every proposed change before it is applied.
 
-## Phase 4 — Online
+## Phase 4 — Online (in progress)
 
-- Keyless metadata and artwork first: MusicBrainz, Cover Art Archive, Deezer and
-  iTunes for profiles, artist pictures and covers, cached on disk.
+Delivered:
+
+- `sonora-metadata`: MusicBrainz → Cover Art Archive, Deezer and iTunes artwork
+  fallbacks, LRCLIB synced and plain lyrics, Last.fm tags behind an API key, TTL
+  disk cache, every provider behind an `Http` trait so tests never touch the
+  network.
+- Lyrics stored per track in the `lyrics` table, and reachable headlessly with
+  `sonora --lyrics <query>` and `sonora --cover <query>`.
+
+Still open:
+
+- Artist and album profiles with pictures.
 - Last.fm (needs a free developer API key): auth, scrobbling with an offline
   queue, now-playing, loved tracks, charts, similar artists, recommendations,
   cached responses.
-- Lyrics: LRCLIB + local `.lrc`, synced highlighting, editing, caching.
+- A synced lyrics view that follows playback, local `.lrc` precedence and lyric
+  editing.
 - Discord Rich Presence (hidden while paused, fully disableable): RPC/IPC on
   desktop, and on Android through the Discord Social SDK, which publishes
   presence without account linking when the Discord app is installed and signed

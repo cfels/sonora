@@ -56,8 +56,17 @@ Inspect the persisted settings document (same JSON the settings screen writes):
 cargo run -p sonora-app -- --settings
 ```
 
-Tests use in-memory SQLite and generated WAV fixtures, so they need no network,
-no audio device and no display.
+Look up metadata for a track already in the library (these two need a network
+connection; the first run stores the result):
+
+```sh
+cargo run -p sonora-app -- --lyrics "Radiohead Creep"
+cargo run -p sonora-app -- --cover "Radiohead Creep"
+```
+
+Tests use in-memory SQLite, generated WAV fixtures and canned provider
+responses, so they need no network, no audio device and no display. Playback
+tests drive a real GStreamer pipeline into `fakesink`.
 
 ## Conventions
 

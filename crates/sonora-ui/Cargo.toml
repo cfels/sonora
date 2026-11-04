@@ -11,6 +11,7 @@ anyhow = { workspace = true }
 log = { workspace = true }
 slint = { workspace = true }
 sonora-core = { workspace = true }
+sonora-playback = { workspace = true }
 sonora-db = { workspace = true }
 sonora-scan = { workspace = true }
 tokio = { workspace = true }

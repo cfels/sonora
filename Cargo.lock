@@ -5066,6 +5066,7 @@ dependencies = [
  "slint-build",
  "sonora-core",
  "sonora-db",
+ "sonora-playback",
  "sonora-scan",
  "tokio",
 ]

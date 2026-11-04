@@ -1,0 +1,15 @@
+[package]
+name = "sonora-playback"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gstreamer = { workspace = true }
+log = { workspace = true }
+sonora-core = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

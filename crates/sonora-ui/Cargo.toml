@@ -1,0 +1,20 @@
+[package]
+name = "sonora-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+log = { workspace = true }
+slint = { workspace = true }
+sonora-core = { workspace = true }
+sonora-playback = { workspace = true }
+sonora-db = { workspace = true }
+sonora-scan = { workspace = true }
+tokio = { workspace = true }
+
+[build-dependencies]
+slint-build = { workspace = true }

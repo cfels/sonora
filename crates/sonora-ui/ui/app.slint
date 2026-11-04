@@ -1,0 +1,884 @@
+// Sonora application shell.
+//
+// Library views plus the playback transport and queue. Every control here is
+// wired to real behaviour — there are no placeholder buttons.
+
+import { ScrollView, LineEdit, Slider } from "std-widgets.slint";
+
+global Palette {
+    out property <color> bg: #0b0b10;
+    out property <color> sidebar: #101017;
+    out property <color> panel: #15151f;
+    out property <color> panel-hover: #1d1d29;
+    out property <color> stroke: #23232f;
+    out property <color> text: #edecf4;
+    out property <color> muted: #8c8c9e;
+    out property <color> accent: #7f5af0;
+    out property <color> accent-hover: #8f6dff;
+    out property <color> accent-soft: #221b3d;
+}
+
+export struct TrackRow {
+    id: int,
+    title: string,
+    subtitle: string,
+    duration: string,
+}
+
+export struct AlbumRow {
+    title: string,
+    subtitle: string,
+    meta: string,
+}
+
+export struct QueueRow {
+    title: string,
+    subtitle: string,
+}
+
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 38px;
+    border-radius: 9px;
+    background: root.active ? Palette.accent-soft : (touch.has-hover ? Palette.panel-hover : transparent);
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Text {
+        text: root.label;
+        color: root.active ? Palette.text : Palette.muted;
+        font-size: 14px;
+        x: 14px;
+        vertical-alignment: center;
+    }
+}
+
+component StatCard inherits Rectangle {
+    in property <string> value;
+    in property <string> caption;
+
+    height: 86px;
+    border-radius: 14px;
+    background: Palette.panel;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 2px;
+        alignment: start;
+
+        Text {
+            text: root.value;
+            color: Palette.text;
+            font-size: 26px;
+            font-weight: 600;
+        }
+        Text {
+            text: root.caption;
+            color: Palette.muted;
+            font-size: 12px;
+        }
+    }
+}
+
+component ActionButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary: true;
+    callback clicked();
+
+    height: 34px;
+    width: button-label.preferred-width + 32px;
+    border-radius: 9px;
+    border-width: root.primary ? 0px : 1px;
+    border-color: Palette.stroke;
+    background: touch.has-hover ? (root.primary ? Palette.accent-hover : Palette.panel-hover) : (root.primary ? Palette.accent : Palette.panel);
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    button-label := Text {
+        text: root.label;
+        color: Palette.text;
+        font-size: 13px;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component EmptyState inherits Rectangle {
+    in property <string> message;
+
+    height: 130px;
+    border-radius: 14px;
+    background: Palette.panel;
+
+    Text {
+        text: root.message;
+        color: Palette.muted;
+        font-size: 13px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        wrap: word-wrap;
+    }
+}
+
+component TrackRowItem inherits Rectangle {
+    in property <TrackRow> track;
+    in property <int> position: 0;
+    in property <bool> show-index: false;
+
+    callback activated(int);
+    callback play-next(int);
+    callback enqueue(int);
+
+    height: 54px;
+    border-radius: 8px;
+    background: touch.has-hover ? Palette.panel-hover : transparent;
+
+    touch := TouchArea {
+        clicked => {
+            root.activated(root.track.id);
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 14px;
+
+        Text {
+            text: "\{root.position}";
+            width: 26px;
+            visible: root.show-index;
+            color: Palette.muted;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+            alignment: center;
+
+            Text {
+                text: root.track.title;
+                color: Palette.text;
+                font-size: 14px;
+                overflow: elide;
+            }
+            Text {
+                text: root.track.subtitle;
+                color: Palette.muted;
+                font-size: 12px;
+                overflow: elide;
+            }
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        Rectangle {
+            width: 44px;
+            height: 24px;
+            border-radius: 6px;
+            background: next-touch.has-hover ? Palette.accent-soft : transparent;
+
+            Text {
+                text: "Next";
+                color: Palette.muted;
+                font-size: 10px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            next-touch := TouchArea {
+                clicked => {
+                    root.play-next(root.track.id);
+                }
+            }
+        }
+
+        Rectangle {
+            width: 44px;
+            height: 24px;
+            border-radius: 6px;
+            background: queue-touch.has-hover ? Palette.accent-soft : transparent;
+
+            Text {
+                text: "Add";
+                color: Palette.muted;
+                font-size: 10px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            queue-touch := TouchArea {
+                clicked => {
+                    root.enqueue(root.track.id);
+                }
+            }
+        }
+
+        Text {
+            text: root.track.duration;
+            width: 52px;
+            color: Palette.muted;
+            font-size: 12px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component AlbumCard inherits Rectangle {
+    in property <AlbumRow> album;
+
+    height: 78px;
+    border-radius: 12px;
+    background: touch.has-hover ? Palette.panel-hover : Palette.panel;
+
+    touch := TouchArea {}
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 4px;
+        alignment: start;
+
+        Text {
+            text: root.album.title;
+            color: Palette.text;
+            font-size: 14px;
+            overflow: elide;
+        }
+        Text {
+            text: root.album.subtitle;
+            color: Palette.muted;
+            font-size: 12px;
+            overflow: elide;
+        }
+        Text {
+            text: root.album.meta;
+            color: Palette.muted;
+            font-size: 11px;
+            overflow: elide;
+        }
+    }
+}
+
+component TransportBar inherits Rectangle {
+    in property <string> title: "Nothing playing";
+    in property <string> subtitle: "";
+    in property <bool> playing: false;
+    in property <int> position-ms: 0;
+    in property <int> duration-ms: 0;
+    in property <string> position-label: "0:00";
+    in property <string> duration-label: "0:00";
+    in property <float> volume: 1.0;
+
+    callback toggle();
+    callback previous();
+    callback next();
+    callback seek(int);
+    callback volume-changed(float);
+    callback queue-toggle();
+
+    height: 78px;
+    background: Palette.panel;
+
+    HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        spacing: 14px;
+
+        VerticalLayout {
+            width: 210px;
+            alignment: center;
+            spacing: 2px;
+
+            Text {
+                text: root.title;
+                color: Palette.text;
+                font-size: 13px;
+                overflow: elide;
+            }
+            Text {
+                text: root.subtitle;
+                color: Palette.muted;
+                font-size: 11px;
+                overflow: elide;
+            }
+        }
+
+        ActionButton {
+            label: "Prev";
+            primary: false;
+            clicked => {
+                root.previous();
+            }
+        }
+
+        ActionButton {
+            label: root.playing ? "Pause" : "Play";
+            clicked => {
+                root.toggle();
+            }
+        }
+
+        ActionButton {
+            label: "Next";
+            primary: false;
+            clicked => {
+                root.next();
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 4px;
+
+            progress := Rectangle {
+                height: 4px;
+                border-radius: 2px;
+                background: Palette.stroke;
+
+                Rectangle {
+                    width: root.duration-ms > 0 ? progress.width * (root.position-ms * 1.0 / root.duration-ms) : 0px;
+                    border-radius: 2px;
+                    background: Palette.accent;
+                }
+
+                TouchArea {
+                    clicked => {
+                        if (root.duration-ms > 0) {
+                            root.seek(floor(root.duration-ms * (self.mouse-x / progress.width)));
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                Text {
+                    text: root.position-label;
+                    color: Palette.muted;
+                    font-size: 10px;
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: root.duration-label;
+                    color: Palette.muted;
+                    font-size: 10px;
+                }
+            }
+        }
+
+        Slider {
+            width: 90px;
+            minimum: 0;
+            maximum: 1;
+            value: root.volume;
+            changed(value) => {
+                root.volume-changed(value);
+            }
+        }
+
+        ActionButton {
+            label: "Queue";
+            primary: false;
+            clicked => {
+                root.queue-toggle();
+            }
+        }
+    }
+}
+
+component QueuePanel inherits Rectangle {
+    in property <[QueueRow]> entries;
+    in-out property <int> drag-target: 0;
+
+    callback remove(int);
+    callback move(int, int);
+
+    width: 300px;
+    background: Palette.sidebar;
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 8px;
+
+        Text {
+            text: "Queue";
+            color: Palette.text;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        Text {
+            text: "Drag a row to reorder. The playing track is not in this list.";
+            color: Palette.muted;
+            font-size: 10px;
+            wrap: word-wrap;
+        }
+
+        if root.entries.length == 0 : Text {
+            text: "Nothing queued.";
+            color: Palette.muted;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+
+        for entry[index] in root.entries : Rectangle {
+            height: 46px;
+            border-radius: 8px;
+            background: drag-touch.has-hover ? Palette.panel-hover : Palette.panel;
+
+            drag-touch := TouchArea {
+                moved => {
+                    root.drag-target = max(0, min(root.entries.length - 1, index + floor((self.mouse-y - 23px) / 46px)));
+                }
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
+                        root.move(index, root.drag-target);
+                    }
+                }
+            }
+
+            VerticalLayout {
+                x: 12px;
+                width: parent.width - 48px;
+                alignment: center;
+                spacing: 1px;
+
+                Text {
+                    text: entry.title;
+                    color: Palette.text;
+                    font-size: 12px;
+                    overflow: elide;
+                }
+                Text {
+                    text: entry.subtitle;
+                    color: Palette.muted;
+                    font-size: 10px;
+                    overflow: elide;
+                }
+            }
+
+            remove-touch := TouchArea {
+                x: parent.width - 36px;
+                y: 10px;
+                width: 26px;
+                height: 26px;
+
+                clicked => {
+                    root.remove(index);
+                }
+            }
+
+            Text {
+                text: "x";
+                x: parent.width - 36px;
+                y: 10px;
+                width: 26px;
+                height: 26px;
+                color: remove-touch.has-hover ? Palette.text : Palette.muted;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Sonora";
+    preferred-width: 1240px;
+    preferred-height: 800px;
+    min-width: 920px;
+    min-height: 600px;
+    background: Palette.bg;
+
+    in property <string> section: "home";
+    in-out property <string> search-text: "";
+    in-out property <string> folder-path: "";
+    in property <string> status: "Ready";
+    in property <bool> busy: false;
+    in property <int> track-count: 0;
+    in property <int> album-count: 0;
+    in property <int> artist-count: 0;
+    in property <string> library-duration: "0:00";
+    in property <[TrackRow]> recent-tracks;
+    in property <[TrackRow]> all-tracks;
+    in property <[AlbumRow]> albums;
+    in property <[string]> folders;
+
+    in property <bool> playback-available: false;
+    in property <string> now-playing-title: "Nothing playing";
+    in property <string> now-playing-subtitle: "";
+    in property <bool> playing: false;
+    in property <int> position-ms: 0;
+    in property <int> duration-ms: 0;
+    in property <string> position-label: "0:00";
+    in property <string> duration-label: "0:00";
+    in property <float> volume: 1.0;
+    in property <[QueueRow]> queue-entries;
+    in-out property <bool> queue-open: false;
+
+    callback section-changed(string);
+    callback search-changed(string);
+    callback add-folder(string);
+    callback rescan-requested();
+
+    callback track-activated(int);
+    callback play-next-requested(int);
+    callback enqueue-requested(int);
+    callback toggle-playback();
+    callback previous-track();
+    callback next-track();
+    callback seek-requested(int);
+    callback volume-changed(float);
+    callback queue-move(int, int);
+    callback queue-remove(int);
+
+    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : "Library folders";
+
+    VerticalLayout {
+        HorizontalLayout {
+            // -------------------------------------------------------- sidebar
+            Rectangle {
+                width: 236px;
+                background: Palette.sidebar;
+
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 6px;
+
+                    HorizontalLayout {
+                        height: 54px;
+                        spacing: 12px;
+
+                        Image {
+                            source: @image-url("../../../assets/branding/logo-mark.svg");
+                            width: 26px;
+                            height: 32px;
+                        }
+
+                        Text {
+                            text: "Sonora";
+                            color: Palette.text;
+                            font-size: 19px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: "LIBRARY";
+                        color: Palette.muted;
+                        font-size: 10px;
+                        letter-spacing: 1.2px;
+                        height: 30px;
+                        vertical-alignment: bottom;
+                    }
+
+                    NavItem {
+                        label: "Home";
+                        active: root.section == "home";
+                        clicked => {
+                            root.section-changed("home");
+                        }
+                    }
+                    NavItem {
+                        label: "Tracks";
+                        active: root.section == "tracks";
+                        clicked => {
+                            root.section-changed("tracks");
+                        }
+                    }
+                    NavItem {
+                        label: "Albums";
+                        active: root.section == "albums";
+                        clicked => {
+                            root.section-changed("albums");
+                        }
+                    }
+                    NavItem {
+                        label: "Library folders";
+                        active: root.section == "folders";
+                        clicked => {
+                            root.section-changed("folders");
+                        }
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                    }
+
+                    Text {
+                        text: root.status;
+                        color: Palette.muted;
+                        font-size: 11px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            // ----------------------------------------------------------- main
+            VerticalLayout {
+                Rectangle {
+                    height: 64px;
+                    background: Palette.bg;
+
+                    HorizontalLayout {
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        spacing: 12px;
+
+                        Text {
+                            text: root.page-title;
+                            color: Palette.text;
+                            font-size: 20px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+
+                        LineEdit {
+                            width: 280px;
+                            text: root.search-text;
+                            edited(text) => {
+                                root.search-text = text;
+                                root.search-changed(text);
+                            }
+                        }
+
+                        ActionButton {
+                            label: root.busy ? "Scanning…" : "Rescan library";
+                            primary: false;
+                            clicked => {
+                                root.rescan-requested();
+                            }
+                        }
+                    }
+                }
+
+                // --------------------------------------------------------- home
+                if root.section == "home" : ScrollView {
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 18px;
+
+                        HorizontalLayout {
+                            spacing: 12px;
+
+                            StatCard {
+                                value: "\{root.track-count}";
+                                caption: "Tracks";
+                                horizontal-stretch: 1;
+                            }
+                            StatCard {
+                                value: "\{root.album-count}";
+                                caption: "Albums";
+                                horizontal-stretch: 1;
+                            }
+                            StatCard {
+                                value: "\{root.artist-count}";
+                                caption: "Artists";
+                                horizontal-stretch: 1;
+                            }
+                            StatCard {
+                                value: root.library-duration;
+                                caption: "Total listening time";
+                                horizontal-stretch: 1;
+                            }
+                        }
+
+                        Text {
+                            text: "Recently added";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+
+                        if root.recent-tracks.length == 0 : EmptyState {
+                            message: "Your library is empty. Open \"Library folders\", paste a path and press Add folder — Sonora will index everything inside it.";
+                        }
+
+                        for item[index] in root.recent-tracks : TrackRowItem {
+                            track: item;
+                            position: index + 1;
+                            show-index: true;
+                            activated(id) => {
+                                root.track-activated(id);
+                            }
+                            play-next(id) => {
+                                root.play-next-requested(id);
+                            }
+                            enqueue(id) => {
+                                root.enqueue-requested(id);
+                            }
+                        }
+                    }
+                }
+
+                // ------------------------------------------------------- tracks
+                if root.section == "tracks" : ScrollView {
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 2px;
+
+                        if root.all-tracks.length == 0 : EmptyState {
+                            message: root.search-text == "" ? "No tracks indexed yet." : "No tracks match your search.";
+                        }
+
+                        for item[index] in root.all-tracks : TrackRowItem {
+                            track: item;
+                            position: index + 1;
+                            show-index: true;
+                            activated(id) => {
+                                root.track-activated(id);
+                            }
+                            play-next(id) => {
+                                root.play-next-requested(id);
+                            }
+                            enqueue(id) => {
+                                root.enqueue-requested(id);
+                            }
+                        }
+                    }
+                }
+
+                // ------------------------------------------------------- albums
+                if root.section == "albums" : ScrollView {
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 14px;
+
+                        if root.albums.length == 0 : EmptyState {
+                            message: "Albums appear here once tracks with album tags are indexed.";
+                        }
+
+                        for item in root.albums : AlbumCard {
+                            album: item;
+                        }
+                    }
+                }
+
+                // ------------------------------------------------------ folders
+                if root.section == "folders" : ScrollView {
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 14px;
+
+                        Text {
+                            text: "Sonora indexes every supported audio file inside these folders, including subfolders. Re-scanning only touches files that changed.";
+                            color: Palette.muted;
+                            font-size: 13px;
+                            wrap: word-wrap;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 10px;
+
+                            LineEdit {
+                                text: root.folder-path;
+                                placeholder-text: "/home/you/Music";
+                                edited(text) => {
+                                    root.folder-path = text;
+                                }
+                                horizontal-stretch: 1;
+                            }
+
+                            ActionButton {
+                                label: "Add folder";
+                                clicked => {
+                                    root.add-folder(root.folder-path);
+                                }
+                            }
+                        }
+
+                        if root.folders.length == 0 : EmptyState {
+                            message: "No library folders yet.";
+                        }
+
+                        for folder in root.folders : Rectangle {
+                            height: 46px;
+                            border-radius: 10px;
+                            background: Palette.panel;
+
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                spacing: 10px;
+
+                                Text {
+                                    text: folder;
+                                    color: Palette.text;
+                                    font-size: 13px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ------------------------------------------------------ queue panel
+            if root.queue-open : QueuePanel {
+                entries: root.queue-entries;
+                remove(index) => {
+                    root.queue-remove(index);
+                }
+                move(from, to) => {
+                    root.queue-move(from, to);
+                }
+            }
+        }
+
+        // --------------------------------------------------------- transport
+        if root.playback-available : TransportBar {
+            title: root.now-playing-title;
+            subtitle: root.now-playing-subtitle;
+            playing: root.playing;
+            position-ms: root.position-ms;
+            duration-ms: root.duration-ms;
+            position-label: root.position-label;
+            duration-label: root.duration-label;
+            volume: root.volume;
+
+            toggle() => {
+                root.toggle-playback();
+            }
+            previous() => {
+                root.previous-track();
+            }
+            next() => {
+                root.next-track();
+            }
+            seek(ms) => {
+                root.seek-requested(ms);
+            }
+            volume-changed(value) => {
+                root.volume-changed(value);
+            }
+            queue-toggle() => {
+                root.queue-open = !root.queue-open;
+            }
+        }
+    }
+}

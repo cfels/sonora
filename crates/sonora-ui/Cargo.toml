@@ -12,9 +12,18 @@ log = { workspace = true }
 slint = { workspace = true }
 sonora-core = { workspace = true }
 sonora-playback = { workspace = true }
+sonora-artwork = { workspace = true }
 sonora-db = { workspace = true }
+image = { workspace = true }
+sonora-metadata = { workspace = true }
 sonora-scan = { workspace = true }
 tokio = { workspace = true }
+
+# Native folder picker. The XDG portal backend keeps Linux free of a GTK
+# dependency, which the CI containers do not have. Android has no rfd support,
+# so the path field stays the only input there.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
 
 [build-dependencies]
 slint-build = { workspace = true }

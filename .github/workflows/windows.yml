@@ -1,0 +1,74 @@
+name: Windows build
+
+# GStreamer no longer publishes a Windows "devel" installer next to its runtime
+# packages, so an MSVC build cannot find gstreamer-1.0.pc on a runner. MSYS2's
+# MinGW packages do ship the headers, pkg-config files and DLLs, so the Windows
+# binary is built as x86_64-pc-windows-gnu and shipped with its DLLs beside it.
+#
+# This exists so nobody has to compile the workspace on their own machine: the
+# run happens on GitHub's hardware and the artifact is a ready-to-run folder.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (windows, mingw)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-rust
+            mingw-w64-x86_64-gstreamer
+            mingw-w64-x86_64-gst-plugins-base
+            mingw-w64-x86_64-gst-plugins-good
+
+      - name: Build the application
+        shell: msys2 {0}
+        run: |
+          export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
+          cargo build --release -p sonora-app
+
+      - name: Collect the executable, its DLLs and the GStreamer plugins
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist
+          cp target/release/sonora.exe dist/
+
+          # Direct dependencies of the executable.
+          ldd target/release/sonora.exe | grep -oE '/mingw64/bin/[^ ]+\.dll' | sort -u | while read -r dll; do
+            cp "$dll" dist/
+          done
+
+          # GStreamer loads elements at runtime, so ldd on the exe is not enough:
+          # playbin, wavparse, audioconvert and the audio sink live in plugin
+          # modules. Ship them, plus whatever those modules themselves link to.
+          cp -r /mingw64/lib/gstreamer-1.0 dist/gstreamer-1.0
+          find dist/gstreamer-1.0 -name '*.dll' -exec ldd {} \; \
+            | grep -oE '/mingw64/bin/[^ ]+\.dll' | sort -u \
+            | while read -r dll; do
+                cp -n "$dll" dist/ 2>/dev/null || true
+              done
+
+          # Double-clicking the exe would not find the plugins, so ship a launcher
+          # that points GStreamer at the folder next to it.
+          printf '@echo off\r\nset "GST_PLUGIN_PATH_1_0=%%~dp0gstreamer-1.0"\r\nstart "" "%%~dp0sonora.exe"\r\n' > dist/run-sonora.bat
+
+          ls -la dist | head -40
+          echo "plugins: $(find dist/gstreamer-1.0 -name '*.dll' | wc -l)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sonora-windows-x86_64
+          path: dist
+          if-no-files-found: error

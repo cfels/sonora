@@ -6,16 +6,20 @@
 import { ScrollView, LineEdit, Slider } from "std-widgets.slint";
 
 global Palette {
-    out property <color> bg: #0b0b10;
-    out property <color> sidebar: #101017;
-    out property <color> panel: #15151f;
-    out property <color> panel-hover: #1d1d29;
-    out property <color> stroke: #23232f;
-    out property <color> text: #edecf4;
-    out property <color> muted: #8c8c9e;
-    out property <color> accent: #7f5af0;
-    out property <color> accent-hover: #8f6dff;
-    out property <color> accent-soft: #221b3d;
+    // Warm charcoal rather than pure grey, with a amber accent: Sonora's own
+    // palette, not a copy of anybody's streaming service.
+    out property <color> bg: #17161b;
+    out property <color> sidebar: #101015;
+    out property <color> panel: #1e1d23;
+    out property <color> panel-hover: #2a2831;
+    out property <color> stroke: #2e2c35;
+    out property <color> text: #f5f3ef;
+    out property <color> muted: #a3a0ab;
+    out property <color> accent: #f0b13c;
+    out property <color> accent-hover: #ffc65a;
+    out property <color> accent-soft: #3a2f18;
+    // Dark ink on the amber, because white on it is unreadable.
+    out property <color> accent-text: #191510;
 }
 
 export struct TrackRow {
@@ -42,8 +46,8 @@ component NavItem inherits Rectangle {
     callback clicked();
 
     height: 38px;
-    border-radius: 9px;
-    background: root.active ? Palette.accent-soft : (touch.has-hover ? Palette.panel-hover : transparent);
+    border-radius: 6px;
+    background: root.active ? Palette.panel-hover : (touch.has-hover ? #1a1a1a : transparent);
 
     touch := TouchArea {
         clicked => {
@@ -55,7 +59,10 @@ component NavItem inherits Rectangle {
         text: root.label;
         color: root.active ? Palette.text : Palette.muted;
         font-size: 14px;
+        font-weight: root.active ? 700 : 400;
         x: 14px;
+        width: parent.width - 28px;
+        height: parent.height;
         vertical-alignment: center;
     }
 }
@@ -65,7 +72,7 @@ component StatCard inherits Rectangle {
     in property <string> caption;
 
     height: 86px;
-    border-radius: 14px;
+    border-radius: 8px;
     background: Palette.panel;
 
     VerticalLayout {
@@ -87,14 +94,16 @@ component StatCard inherits Rectangle {
     }
 }
 
+// The label sits in a layout so it is centred in the button instead of pinned
+// to the top-left corner, which is what a bare Text inside a Rectangle does.
 component ActionButton inherits Rectangle {
     in property <string> label;
     in property <bool> primary: true;
     callback clicked();
 
-    height: 34px;
-    width: button-label.preferred-width + 32px;
-    border-radius: 9px;
+    height: 36px;
+    width: content.preferred-width;
+    border-radius: 8px;
     border-width: root.primary ? 0px : 1px;
     border-color: Palette.stroke;
     background: touch.has-hover ? (root.primary ? Palette.accent-hover : Palette.panel-hover) : (root.primary ? Palette.accent : Palette.panel);
@@ -105,11 +114,51 @@ component ActionButton inherits Rectangle {
         }
     }
 
-    button-label := Text {
+    content := HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        alignment: center;
+
+        Text {
+            text: root.label;
+            color: root.primary ? Palette.accent-text : Palette.text;
+            font-size: 13px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Small -/+ beside a slider: dragging is imprecise on a touch screen or a low
+// resolution display, and these nudge the value by a fixed step.
+component StepButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Palette.stroke;
+    background: touch.has-hover && root.enabled ? Palette.panel-hover : Palette.panel;
+    opacity: root.enabled ? 1.0 : 0.35;
+
+    touch := TouchArea {
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+
+    Text {
         text: root.label;
+        width: parent.width;
+        height: parent.height;
         color: Palette.text;
-        font-size: 13px;
-        font-weight: 500;
+        font-size: 15px;
+        font-weight: 700;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -119,11 +168,14 @@ component EmptyState inherits Rectangle {
     in property <string> message;
 
     height: 130px;
-    border-radius: 14px;
+    border-radius: 8px;
     background: Palette.panel;
 
     Text {
         text: root.message;
+        width: parent.width - 32px;
+        height: parent.height;
+        x: 16px;
         color: Palette.muted;
         font-size: 13px;
         horizontal-alignment: center;
@@ -141,8 +193,8 @@ component TrackRowItem inherits Rectangle {
     callback play-next(int);
     callback enqueue(int);
 
-    height: 54px;
-    border-radius: 8px;
+    height: 56px;
+    border-radius: 6px;
     background: touch.has-hover ? Palette.panel-hover : transparent;
 
     touch := TouchArea {
@@ -244,7 +296,7 @@ component AlbumCard inherits Rectangle {
     in property <AlbumRow> album;
 
     height: 78px;
-    border-radius: 12px;
+    border-radius: 8px;
     background: touch.has-hover ? Palette.panel-hover : Palette.panel;
 
     touch := TouchArea {}
@@ -284,6 +336,7 @@ component TransportBar inherits Rectangle {
     in property <string> position-label: "0:00";
     in property <string> duration-label: "0:00";
     in property <float> volume: 1.0;
+    in property <image> artwork;
 
     callback toggle();
     callback previous();
@@ -291,14 +344,32 @@ component TransportBar inherits Rectangle {
     callback seek(int);
     callback volume-changed(float);
     callback queue-toggle();
+    callback lyrics-toggle();
 
-    height: 78px;
-    background: Palette.panel;
+    height: 90px;
+    background: Palette.sidebar;
+    border-width: 1px;
+    border-color: Palette.stroke;
 
     HorizontalLayout {
-        padding-left: 18px;
-        padding-right: 18px;
-        spacing: 14px;
+        padding-left: 24px;
+        padding-right: 24px;
+        spacing: 16px;
+
+        Rectangle {
+            width: 56px;
+            height: 56px;
+            border-radius: 4px;
+            background: Palette.stroke;
+            clip: true;
+
+            Image {
+                source: root.artwork;
+                width: parent.width;
+                height: parent.height;
+                image-fit: cover;
+            }
+        }
 
         VerticalLayout {
             width: 210px;
@@ -309,6 +380,7 @@ component TransportBar inherits Rectangle {
                 text: root.title;
                 color: Palette.text;
                 font-size: 13px;
+                font-weight: 700;
                 overflow: elide;
             }
             Text {
@@ -391,6 +463,14 @@ component TransportBar inherits Rectangle {
             value: root.volume;
             changed(value) => {
                 root.volume-changed(value);
+            }
+        }
+
+        ActionButton {
+            label: "Lyrics";
+            primary: false;
+            clicked => {
+                root.lyrics-toggle();
             }
         }
 
@@ -501,6 +581,282 @@ component QueuePanel inherits Rectangle {
     }
 }
 
+component LyricsPanel inherits Rectangle {
+    in property <string> text: "";
+    in property <string> status: "";
+
+    callback close();
+    callback fetch();
+
+    width: 320px;
+    background: Palette.sidebar;
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            Text {
+                text: "Lyrics";
+                color: Palette.text;
+                font-size: 15px;
+                font-weight: 600;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+            }
+            ActionButton {
+                label: "Close";
+                primary: false;
+                clicked => {
+                    root.close();
+                }
+            }
+        }
+
+        ActionButton {
+            label: "Fetch lyrics";
+            primary: false;
+            clicked => {
+                root.fetch();
+            }
+        }
+
+        Text {
+            text: root.status;
+            color: Palette.muted;
+            font-size: 10px;
+            wrap: word-wrap;
+        }
+
+        ScrollView {
+            Text {
+                text: root.text;
+                color: Palette.text;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+component OnboardingOverlay inherits Rectangle {
+    in property <int> step: 0;
+    in property <string> folder-path: "";
+    in property <string> folder-hint: "Music";
+    in property <int> folder-count: 0;
+    in property <string> format-tier: "lossless";
+    in-out property <float> bitrate: 320;
+    in property <string> lastfm-key: "";
+
+    private property <int> bitrate-shown: round(root.bitrate);
+
+    callback next();
+    callback back();
+    callback finish();
+    callback folder-path-changed(string);
+    callback add-folder(string);
+    callback browse-folder();
+    callback tier-changed(string);
+    callback bitrate-changed(float);
+    callback lastfm-changed(string);
+
+    background: Palette.bg;
+
+    VerticalLayout {
+        padding: 64px;
+        spacing: 18px;
+
+        Text {
+            text: "SONORA";
+            color: Palette.muted;
+            font-size: 12px;
+            letter-spacing: 2px;
+        }
+
+        if root.step == 0 : Text {
+            text: "Welcome";
+            color: Palette.text;
+            font-size: 30px;
+            font-weight: 600;
+        }
+        if root.step == 0 : Text {
+            text: "Sonora plays the files you already own: no account, no subscription, no web view. It indexes your folders, reads the tags, and keeps the library in a local database.";
+            color: Palette.muted;
+            font-size: 14px;
+            wrap: word-wrap;
+        }
+
+        if root.step == 1 : Text {
+            text: "Where is your music?";
+            color: Palette.text;
+            font-size: 32px;
+            font-weight: 700;
+        }
+        if root.step == 1 : Text {
+            text: "Point Sonora at one or more folders. Subfolders are included, and re-scanning only touches files that changed.";
+            color: Palette.muted;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        if root.step == 1 : HorizontalLayout {
+            spacing: 10px;
+            LineEdit {
+                text: root.folder-path;
+                placeholder-text: root.folder-hint;
+                edited(text) => {
+                    root.folder-path-changed(text);
+                }
+                horizontal-stretch: 1;
+            }
+            ActionButton {
+                label: "Browse…";
+                primary: false;
+                clicked => {
+                    root.browse-folder();
+                }
+            }
+            ActionButton {
+                label: "Add folder";
+                clicked => {
+                    root.add-folder(root.folder-path);
+                }
+            }
+        }
+        if root.step == 1 : Text {
+            text: "\{root.folder-count} folders indexed so far.";
+            color: Palette.muted;
+            font-size: 12px;
+        }
+
+        if root.step == 2 : Text {
+            text: "Which files do you prefer?";
+            color: Palette.text;
+            font-size: 32px;
+            font-weight: 700;
+        }
+        if root.step == 2 : Text {
+            text: "This governs downloads, device sync and what the cache keeps. It never changes how files already in your library are played.";
+            color: Palette.muted;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        if root.step == 2 : HorizontalLayout {
+            spacing: 10px;
+            ActionButton {
+                label: "Lossless";
+                primary: root.format-tier == "lossless";
+                clicked => {
+                    root.tier-changed("lossless");
+                }
+            }
+            ActionButton {
+                label: "Lossy";
+                primary: root.format-tier == "lossy";
+                clicked => {
+                    root.tier-changed("lossy");
+                }
+            }
+        }
+        if root.step == 2 && root.format-tier == "lossy" : Text {
+            text: root.bitrate >= 1411 ? "Bitrate ceiling: unlimited — a maximum, never a target." : "Bitrate ceiling: \{root.bitrate-shown} kbit/s — a maximum, never a target.";
+            color: Palette.muted;
+            font-size: 12px;
+        }
+        if root.step == 2 && root.format-tier == "lossy" : HorizontalLayout {
+            spacing: 8px;
+            alignment: center;
+
+            StepButton {
+                label: "−";
+                enabled: root.bitrate > 32;
+                clicked => {
+                    root.bitrate = max(32.0, root.bitrate - 32);
+                    root.bitrate-changed(root.bitrate);
+                }
+            }
+            Slider {
+                horizontal-stretch: 1;
+                minimum: 32;
+                maximum: 1411;
+                value <=> root.bitrate;
+            }
+            StepButton {
+                label: "+";
+                enabled: root.bitrate < 1411;
+                clicked => {
+                    root.bitrate = min(1411.0, root.bitrate + 32);
+                    root.bitrate-changed(root.bitrate);
+                }
+            }
+        }
+
+        if root.step == 3 : Text {
+            text: "Optional: Last.fm";
+            color: Palette.text;
+            font-size: 32px;
+            font-weight: 700;
+        }
+        if root.step == 3 : Text {
+            text: "Artwork, lyrics and metadata work without any key. A free Last.fm key only adds listener tags and scrobbling, and you can add it later in Settings.";
+            color: Palette.muted;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        if root.step == 3 : LineEdit {
+            text: root.lastfm-key;
+            placeholder-text: "Last.fm API key (optional)";
+            edited(text) => {
+                root.lastfm-changed(text);
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+        }
+
+        Text {
+            text: "Step \{root.step + 1} of 4";
+            color: Palette.muted;
+            font-size: 11px;
+        }
+
+        HorizontalLayout {
+            spacing: 10px;
+
+            if root.step > 0 : ActionButton {
+                label: "Back";
+                primary: false;
+                clicked => {
+                    root.back();
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+
+            ActionButton {
+                label: "Skip setup";
+                primary: false;
+                clicked => {
+                    root.finish();
+                }
+            }
+
+            ActionButton {
+                label: root.step >= 3 ? "Finish" : "Continue";
+                clicked => {
+                    if (root.step >= 3) {
+                        root.finish();
+                    } else {
+                        root.next();
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "Sonora";
     preferred-width: 1240px;
@@ -534,10 +890,28 @@ export component AppWindow inherits Window {
     in property <float> volume: 1.0;
     in property <[QueueRow]> queue-entries;
     in-out property <bool> queue-open: false;
+    in-out property <bool> onboarding-open: false;
+    in-out property <int> onboarding-step: 0;
+    in-out property <bool> lyrics-open: false;
+    in property <string> lyrics-text: "";
+    in property <string> lyrics-status: "";
+    in property <image> artwork;
+
+    in-out property <string> settings-format-tier: "lossless";
+    // float, because these two drive Sliders through a two-way binding: an int
+    // property could only be read by the slider, and the -/+ buttons would stop
+    // moving it once the user had dragged the handle.
+    in-out property <float> settings-bitrate: 320;
+    in-out property <float> settings-cache-mib: 4096;
+    in-out property <string> settings-artwork-format: "jpg";
+    in-out property <int> settings-artwork-quality: 90;
+    in-out property <string> settings-folder-template: "{album_artist}/{album}/{track_no:02} {title}";
+    in-out property <string> settings-lastfm-key: "";
 
     callback section-changed(string);
     callback search-changed(string);
     callback add-folder(string);
+    callback browse-folder();
     callback rescan-requested();
 
     callback track-activated(int);
@@ -550,10 +924,22 @@ export component AppWindow inherits Window {
     callback volume-changed(float);
     callback queue-move(int, int);
     callback queue-remove(int);
+    callback save-settings(string, int, int, string, int, string, string);
+    callback onboarding-next();
+    callback onboarding-back();
+    callback onboarding-finish();
+    callback run-onboarding();
+    callback lyrics-toggle();
+    callback lyrics-fetch();
 
-    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : "Library folders";
+    in property <string> folder-hint: "Music";
 
-    VerticalLayout {
+    private property <int> bitrate-shown: round(root.settings-bitrate);
+    private property <int> cache-shown: round(root.settings-cache-mib);
+    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "settings" ? "Settings" : "Library folders";
+
+    Rectangle {
+        VerticalLayout {
         HorizontalLayout {
             // -------------------------------------------------------- sidebar
             Rectangle {
@@ -618,6 +1004,13 @@ export component AppWindow inherits Window {
                         active: root.section == "folders";
                         clicked => {
                             root.section-changed("folders");
+                        }
+                    }
+                    NavItem {
+                        label: "Settings";
+                        active: root.section == "settings";
+                        clicked => {
+                            root.section-changed("settings");
                         }
                     }
 
@@ -735,6 +1128,236 @@ export component AppWindow inherits Window {
                     }
                 }
 
+                // ----------------------------------------------------- settings
+                if root.section == "settings" : ScrollView {
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 14px;
+
+                        Text {
+                            text: "Playback format";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Lossless prefers FLAC and WAV. Lossy never exceeds the ceiling below, and the ceiling is a maximum, never a target to re-encode up to.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            ActionButton {
+                                label: "Lossless";
+                                primary: root.settings-format-tier == "lossless";
+                                clicked => {
+                                    root.settings-format-tier = "lossless";
+                                }
+                            }
+                            ActionButton {
+                                label: "Lossy";
+                                primary: root.settings-format-tier == "lossy";
+                                clicked => {
+                                    root.settings-format-tier = "lossy";
+                                }
+                            }
+                        }
+                        if root.settings-format-tier == "lossy" : Text {
+                            text: root.settings-bitrate >= 1411 ? "Bitrate ceiling: unlimited" : "Bitrate ceiling: \{root.bitrate-shown} kbit/s";
+                            color: Palette.muted;
+                            font-size: 12px;
+                        }
+                        if root.settings-format-tier == "lossy" : HorizontalLayout {
+                            spacing: 8px;
+                            alignment: center;
+
+                            StepButton {
+                                label: "−";
+                                enabled: root.settings-bitrate > 32;
+                                clicked => {
+                                    root.settings-bitrate = max(32.0, root.settings-bitrate - 32);
+                                }
+                            }
+                            Slider {
+                                horizontal-stretch: 1;
+                                minimum: 32;
+                                maximum: 1411;
+                                value <=> root.settings-bitrate;
+                            }
+                            StepButton {
+                                label: "+";
+                                enabled: root.settings-bitrate < 1411;
+                                clicked => {
+                                    root.settings-bitrate = min(1411.0, root.settings-bitrate + 32);
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
+                            text: "Track cache";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Least recently played tracks are evicted first, and the playing track is never removed.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        Text {
+                            text: "Budget: \{root.cache-shown} MiB";
+                            color: Palette.muted;
+                            font-size: 12px;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: center;
+
+                            StepButton {
+                                label: "−";
+                                enabled: root.settings-cache-mib > 64;
+                                clicked => {
+                                    root.settings-cache-mib = max(64.0, root.settings-cache-mib - 256);
+                                }
+                            }
+                            Slider {
+                                horizontal-stretch: 1;
+                                minimum: 64;
+                                maximum: 16384;
+                                value <=> root.settings-cache-mib;
+                            }
+                            StepButton {
+                                label: "+";
+                                enabled: root.settings-cache-mib < 16384;
+                                clicked => {
+                                    root.settings-cache-mib = min(16384.0, root.settings-cache-mib + 256);
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
+                            text: "Artwork";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            ActionButton {
+                                label: "JPEG";
+                                primary: root.settings-artwork-format == "jpg";
+                                clicked => {
+                                    root.settings-artwork-format = "jpg";
+                                }
+                            }
+                            ActionButton {
+                                label: "PNG";
+                                primary: root.settings-artwork-format == "png";
+                                clicked => {
+                                    root.settings-artwork-format = "png";
+                                }
+                            }
+                        }
+                        Text {
+                            text: "JPEG quality: \{root.settings-artwork-quality}";
+                            color: Palette.muted;
+                            font-size: 12px;
+                        }
+                        Slider {
+                            minimum: 1;
+                            maximum: 100;
+                            value: root.settings-artwork-quality;
+                            changed(value) => {
+                                root.settings-artwork-quality = round(value);
+                            }
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
+                            text: "Library layout";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        LineEdit {
+                            text: root.settings-folder-template;
+                            edited(text) => {
+                                root.settings-folder-template = text;
+                            }
+                        }
+                        Text {
+                            text: "Placeholders: album_artist, album, artist, title, track_no:02, disc_no, year.";
+                            color: Palette.muted;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
+                            text: "Last.fm";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Optional. Last.fm data needs a free API key; every keyless provider keeps working without one.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        LineEdit {
+                            text: root.settings-lastfm-key;
+                            placeholder-text: "API key";
+                            edited(text) => {
+                                root.settings-lastfm-key = text;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 14px;
+                            ActionButton {
+                                label: "Save settings";
+                                clicked => {
+                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key);
+                                }
+                            }
+                            ActionButton {
+                                label: "Run onboarding again";
+                                primary: false;
+                                clicked => {
+                                    root.run-onboarding();
+                                }
+                            }
+                            Text {
+                                text: root.status;
+                                color: Palette.muted;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
                 // ------------------------------------------------------- tracks
                 if root.section == "tracks" : ScrollView {
                     VerticalLayout {
@@ -796,11 +1419,19 @@ export component AppWindow inherits Window {
 
                             LineEdit {
                                 text: root.folder-path;
-                                placeholder-text: "/home/you/Music";
+                                placeholder-text: root.folder-hint;
                                 edited(text) => {
                                     root.folder-path = text;
                                 }
                                 horizontal-stretch: 1;
+                            }
+
+                            ActionButton {
+                                label: "Browse…";
+                                primary: false;
+                                clicked => {
+                                    root.browse-folder();
+                                }
                             }
 
                             ActionButton {
@@ -817,7 +1448,7 @@ export component AppWindow inherits Window {
 
                         for folder in root.folders : Rectangle {
                             height: 46px;
-                            border-radius: 10px;
+                            border-radius: 8px;
                             background: Palette.panel;
 
                             HorizontalLayout {
@@ -839,6 +1470,17 @@ export component AppWindow inherits Window {
             }
 
             // ------------------------------------------------------ queue panel
+            if root.lyrics-open : LyricsPanel {
+                text: root.lyrics-text;
+                status: root.lyrics-status;
+                close() => {
+                    root.lyrics-open = false;
+                }
+                fetch() => {
+                    root.lyrics-fetch();
+                }
+            }
+
             if root.queue-open : QueuePanel {
                 entries: root.queue-entries;
                 remove(index) => {
@@ -860,6 +1502,7 @@ export component AppWindow inherits Window {
             position-label: root.position-label;
             duration-label: root.duration-label;
             volume: root.volume;
+            artwork: root.artwork;
 
             toggle() => {
                 root.toggle-playback();
@@ -878,6 +1521,53 @@ export component AppWindow inherits Window {
             }
             queue-toggle() => {
                 root.queue-open = !root.queue-open;
+            }
+            lyrics-toggle() => {
+                root.lyrics-toggle();
+            }
+        }
+        }
+
+        if root.onboarding-open : OnboardingOverlay {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+
+            step: root.onboarding-step;
+            folder-path: root.folder-path;
+            folder-hint: root.folder-hint;
+            folder-count: root.folders.length;
+            format-tier: root.settings-format-tier;
+            bitrate: root.settings-bitrate;
+            lastfm-key: root.settings-lastfm-key;
+
+            folder-path-changed(text) => {
+                root.folder-path = text;
+            }
+            add-folder(path) => {
+                root.add-folder(path);
+            }
+            browse-folder() => {
+                root.browse-folder();
+            }
+            tier-changed(tier) => {
+                root.settings-format-tier = tier;
+            }
+            bitrate-changed(value) => {
+                root.settings-bitrate = value;
+            }
+            lastfm-changed(key) => {
+                root.settings-lastfm-key = key;
+            }
+            next() => {
+                root.onboarding-next();
+            }
+            back() => {
+                root.onboarding-back();
+            }
+            finish() => {
+                root.onboarding-finish();
             }
         }
     }

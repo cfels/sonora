@@ -6,18 +6,20 @@
 import { ScrollView, LineEdit, Slider } from "std-widgets.slint";
 
 global Palette {
-    out property <color> bg: #121212;
-    out property <color> sidebar: #000000;
-    out property <color> panel: #181818;
-    out property <color> panel-hover: #282828;
-    out property <color> stroke: #2a2a2a;
-    out property <color> text: #ffffff;
-    out property <color> muted: #b3b3b3;
-    out property <color> accent: #1ed760;
-    out property <color> accent-hover: #1fdf64;
-    out property <color> accent-soft: #1a3d29;
-    // Spotify puts black text on the green, because white on #1ed760 is mush.
-    out property <color> accent-text: #000000;
+    // Warm charcoal rather than pure grey, with a amber accent: Sonora's own
+    // palette, not a copy of anybody's streaming service.
+    out property <color> bg: #17161b;
+    out property <color> sidebar: #101015;
+    out property <color> panel: #1e1d23;
+    out property <color> panel-hover: #2a2831;
+    out property <color> stroke: #2e2c35;
+    out property <color> text: #f5f3ef;
+    out property <color> muted: #a3a0ab;
+    out property <color> accent: #f0b13c;
+    out property <color> accent-hover: #ffc65a;
+    out property <color> accent-soft: #3a2f18;
+    // Dark ink on the amber, because white on it is unreadable.
+    out property <color> accent-text: #191510;
 }
 
 export struct TrackRow {
@@ -59,6 +61,8 @@ component NavItem inherits Rectangle {
         font-size: 14px;
         font-weight: root.active ? 700 : 400;
         x: 14px;
+        width: parent.width - 28px;
+        height: parent.height;
         vertical-alignment: center;
     }
 }
@@ -90,14 +94,16 @@ component StatCard inherits Rectangle {
     }
 }
 
+// The label sits in a layout so it is centred in the button instead of pinned
+// to the top-left corner, which is what a bare Text inside a Rectangle does.
 component ActionButton inherits Rectangle {
     in property <string> label;
     in property <bool> primary: true;
     callback clicked();
 
     height: 36px;
-    width: button-label.preferred-width + 36px;
-    border-radius: 18px;
+    width: content.preferred-width;
+    border-radius: 8px;
     border-width: root.primary ? 0px : 1px;
     border-color: Palette.stroke;
     background: touch.has-hover ? (root.primary ? Palette.accent-hover : Palette.panel-hover) : (root.primary ? Palette.accent : Palette.panel);
@@ -108,10 +114,50 @@ component ActionButton inherits Rectangle {
         }
     }
 
-    button-label := Text {
+    content := HorizontalLayout {
+        padding-left: 18px;
+        padding-right: 18px;
+        alignment: center;
+
+        Text {
+            text: root.label;
+            color: root.primary ? Palette.accent-text : Palette.text;
+            font-size: 13px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Small -/+ beside a slider: dragging is imprecise on a touch screen or a low
+// resolution display, and these nudge the value by a fixed step.
+component StepButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Palette.stroke;
+    background: touch.has-hover && root.enabled ? Palette.panel-hover : Palette.panel;
+    opacity: root.enabled ? 1.0 : 0.35;
+
+    touch := TouchArea {
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+
+    Text {
         text: root.label;
-        color: root.primary ? Palette.accent-text : Palette.text;
-        font-size: 13px;
+        width: parent.width;
+        height: parent.height;
+        color: Palette.text;
+        font-size: 15px;
         font-weight: 700;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -127,6 +173,9 @@ component EmptyState inherits Rectangle {
 
     Text {
         text: root.message;
+        width: parent.width - 32px;
+        height: parent.height;
+        x: 16px;
         color: Palette.muted;
         font-size: 13px;
         horizontal-alignment: center;
@@ -247,7 +296,7 @@ component AlbumCard inherits Rectangle {
     in property <AlbumRow> album;
 
     height: 78px;
-    border-radius: 12px;
+    border-radius: 8px;
     background: touch.has-hover ? Palette.panel-hover : Palette.panel;
 
     touch := TouchArea {}
@@ -303,9 +352,9 @@ component TransportBar inherits Rectangle {
     border-color: Palette.stroke;
 
     HorizontalLayout {
-        padding-left: 18px;
-        padding-right: 18px;
-        spacing: 14px;
+        padding-left: 24px;
+        padding-right: 24px;
+        spacing: 16px;
 
         Rectangle {
             width: 56px;
@@ -593,18 +642,22 @@ component LyricsPanel inherits Rectangle {
 component OnboardingOverlay inherits Rectangle {
     in property <int> step: 0;
     in property <string> folder-path: "";
+    in property <string> folder-hint: "Music";
     in property <int> folder-count: 0;
     in property <string> format-tier: "lossless";
-    in property <int> bitrate: 320;
+    in-out property <float> bitrate: 320;
     in property <string> lastfm-key: "";
+
+    private property <int> bitrate-shown: round(root.bitrate);
 
     callback next();
     callback back();
     callback finish();
     callback folder-path-changed(string);
     callback add-folder(string);
+    callback browse-folder();
     callback tier-changed(string);
-    callback bitrate-changed(int);
+    callback bitrate-changed(float);
     callback lastfm-changed(string);
 
     background: Palette.bg;
@@ -649,11 +702,18 @@ component OnboardingOverlay inherits Rectangle {
             spacing: 10px;
             LineEdit {
                 text: root.folder-path;
-                placeholder-text: "/home/you/Music";
+                placeholder-text: root.folder-hint;
                 edited(text) => {
                     root.folder-path-changed(text);
                 }
                 horizontal-stretch: 1;
+            }
+            ActionButton {
+                label: "Browse…";
+                primary: false;
+                clicked => {
+                    root.browse-folder();
+                }
             }
             ActionButton {
                 label: "Add folder";
@@ -697,17 +757,36 @@ component OnboardingOverlay inherits Rectangle {
                 }
             }
         }
-        if root.step == 2 : Text {
-            text: "Bitrate ceiling: \{root.bitrate} kbit/s — a maximum, never a target.";
+        if root.step == 2 && root.format-tier == "lossy" : Text {
+            text: root.bitrate >= 1411 ? "Bitrate ceiling: unlimited — a maximum, never a target." : "Bitrate ceiling: \{root.bitrate-shown} kbit/s — a maximum, never a target.";
             color: Palette.muted;
             font-size: 12px;
         }
-        if root.step == 2 : Slider {
-            minimum: 32;
-            maximum: 1411;
-            value: root.bitrate;
-            changed(value) => {
-                root.bitrate-changed(round(value));
+        if root.step == 2 && root.format-tier == "lossy" : HorizontalLayout {
+            spacing: 8px;
+            alignment: center;
+
+            StepButton {
+                label: "−";
+                enabled: root.bitrate > 32;
+                clicked => {
+                    root.bitrate = max(32.0, root.bitrate - 32);
+                    root.bitrate-changed(root.bitrate);
+                }
+            }
+            Slider {
+                horizontal-stretch: 1;
+                minimum: 32;
+                maximum: 1411;
+                value <=> root.bitrate;
+            }
+            StepButton {
+                label: "+";
+                enabled: root.bitrate < 1411;
+                clicked => {
+                    root.bitrate = min(1411.0, root.bitrate + 32);
+                    root.bitrate-changed(root.bitrate);
+                }
             }
         }
 
@@ -819,8 +898,11 @@ export component AppWindow inherits Window {
     in property <image> artwork;
 
     in-out property <string> settings-format-tier: "lossless";
-    in-out property <int> settings-bitrate: 320;
-    in-out property <int> settings-cache-mib: 4096;
+    // float, because these two drive Sliders through a two-way binding: an int
+    // property could only be read by the slider, and the -/+ buttons would stop
+    // moving it once the user had dragged the handle.
+    in-out property <float> settings-bitrate: 320;
+    in-out property <float> settings-cache-mib: 4096;
     in-out property <string> settings-artwork-format: "jpg";
     in-out property <int> settings-artwork-quality: 90;
     in-out property <string> settings-folder-template: "{album_artist}/{album}/{track_no:02} {title}";
@@ -829,6 +911,7 @@ export component AppWindow inherits Window {
     callback section-changed(string);
     callback search-changed(string);
     callback add-folder(string);
+    callback browse-folder();
     callback rescan-requested();
 
     callback track-activated(int);
@@ -849,6 +932,10 @@ export component AppWindow inherits Window {
     callback lyrics-toggle();
     callback lyrics-fetch();
 
+    in property <string> folder-hint: "Music";
+
+    private property <int> bitrate-shown: round(root.settings-bitrate);
+    private property <int> cache-shown: round(root.settings-cache-mib);
     private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "settings" ? "Settings" : "Library folders";
 
     Rectangle {
@@ -1076,17 +1163,34 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
-                        Text {
-                            text: "Bitrate ceiling: \{root.settings-bitrate} kbit/s";
+                        if root.settings-format-tier == "lossy" : Text {
+                            text: root.settings-bitrate >= 1411 ? "Bitrate ceiling: unlimited" : "Bitrate ceiling: \{root.bitrate-shown} kbit/s";
                             color: Palette.muted;
                             font-size: 12px;
                         }
-                        Slider {
-                            minimum: 32;
-                            maximum: 1411;
-                            value: root.settings-bitrate;
-                            changed(value) => {
-                                root.settings-bitrate = round(value);
+                        if root.settings-format-tier == "lossy" : HorizontalLayout {
+                            spacing: 8px;
+                            alignment: center;
+
+                            StepButton {
+                                label: "−";
+                                enabled: root.settings-bitrate > 32;
+                                clicked => {
+                                    root.settings-bitrate = max(32.0, root.settings-bitrate - 32);
+                                }
+                            }
+                            Slider {
+                                horizontal-stretch: 1;
+                                minimum: 32;
+                                maximum: 1411;
+                                value <=> root.settings-bitrate;
+                            }
+                            StepButton {
+                                label: "+";
+                                enabled: root.settings-bitrate < 1411;
+                                clicked => {
+                                    root.settings-bitrate = min(1411.0, root.settings-bitrate + 32);
+                                }
                             }
                         }
 
@@ -1108,16 +1212,33 @@ export component AppWindow inherits Window {
                             wrap: word-wrap;
                         }
                         Text {
-                            text: "Budget: \{root.settings-cache-mib} MiB";
+                            text: "Budget: \{root.cache-shown} MiB";
                             color: Palette.muted;
                             font-size: 12px;
                         }
-                        Slider {
-                            minimum: 64;
-                            maximum: 16384;
-                            value: root.settings-cache-mib;
-                            changed(value) => {
-                                root.settings-cache-mib = round(value);
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: center;
+
+                            StepButton {
+                                label: "−";
+                                enabled: root.settings-cache-mib > 64;
+                                clicked => {
+                                    root.settings-cache-mib = max(64.0, root.settings-cache-mib - 256);
+                                }
+                            }
+                            Slider {
+                                horizontal-stretch: 1;
+                                minimum: 64;
+                                maximum: 16384;
+                                value <=> root.settings-cache-mib;
+                            }
+                            StepButton {
+                                label: "+";
+                                enabled: root.settings-cache-mib < 16384;
+                                clicked => {
+                                    root.settings-cache-mib = min(16384.0, root.settings-cache-mib + 256);
+                                }
                             }
                         }
 
@@ -1217,7 +1338,7 @@ export component AppWindow inherits Window {
                             ActionButton {
                                 label: "Save settings";
                                 clicked => {
-                                    root.save-settings(root.settings-format-tier, root.settings-bitrate, root.settings-cache-mib, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key);
+                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key);
                                 }
                             }
                             ActionButton {
@@ -1298,11 +1419,19 @@ export component AppWindow inherits Window {
 
                             LineEdit {
                                 text: root.folder-path;
-                                placeholder-text: "/home/you/Music";
+                                placeholder-text: root.folder-hint;
                                 edited(text) => {
                                     root.folder-path = text;
                                 }
                                 horizontal-stretch: 1;
+                            }
+
+                            ActionButton {
+                                label: "Browse…";
+                                primary: false;
+                                clicked => {
+                                    root.browse-folder();
+                                }
                             }
 
                             ActionButton {
@@ -1319,7 +1448,7 @@ export component AppWindow inherits Window {
 
                         for folder in root.folders : Rectangle {
                             height: 46px;
-                            border-radius: 10px;
+                            border-radius: 8px;
                             background: Palette.panel;
 
                             HorizontalLayout {
@@ -1407,6 +1536,7 @@ export component AppWindow inherits Window {
 
             step: root.onboarding-step;
             folder-path: root.folder-path;
+            folder-hint: root.folder-hint;
             folder-count: root.folders.length;
             format-tier: root.settings-format-tier;
             bitrate: root.settings-bitrate;
@@ -1417,6 +1547,9 @@ export component AppWindow inherits Window {
             }
             add-folder(path) => {
                 root.add-folder(path);
+            }
+            browse-folder() => {
+                root.browse-folder();
             }
             tier-changed(tier) => {
                 root.settings-format-tier = tier;

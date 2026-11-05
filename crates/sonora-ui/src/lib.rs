@@ -66,6 +66,7 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
 
     let ui = AppWindow::new()?;
     let weak = ui.as_weak();
+    ui.set_folder_hint(folder_hint().into());
     let busy = Arc::new(AtomicU64::new(0));
     let lookup = Arc::new(Mutex::new(TrackLookup::default()));
 
@@ -127,6 +128,34 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                 lookup.clone(),
                 path,
             );
+        });
+    }
+
+    // Typing a path is a fallback; the picker is how people actually add one.
+    #[cfg(not(target_os = "android"))]
+    {
+        let weak = weak.clone();
+        let ctx = ctx.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_browse_folder(move || {
+            let weak = weak.clone();
+            let ctx = ctx.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            handle.clone().spawn(async move {
+                let picked = rfd::AsyncFileDialog::new()
+                    .set_title("Choose a folder for Sonora to index")
+                    .pick_folder()
+                    .await;
+                let Some(folder) = picked else {
+                    return;
+                };
+                let path = folder.path().to_path_buf();
+                let shown = path.display().to_string();
+                let _ = weak.upgrade_in_event_loop(move |ui| ui.set_folder_path(shown.into()));
+                start_scan(weak, ctx, handle, lookup, path);
+            });
         });
     }
 
@@ -255,7 +284,7 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                 return;
             };
             let tier = window.get_settings_format_tier().to_string();
-            let bitrate = window.get_settings_bitrate();
+            let bitrate = window.get_settings_bitrate().round() as i32;
             let lastfm = window.get_settings_lastfm_key().to_string();
 
             let weak = weak.clone();
@@ -918,6 +947,17 @@ fn onboarding_outcome(mut base: Settings, tier: &str, bitrate: i32, lastfm: &str
     base.normalized()
 }
 
+/// Where this machine usually keeps music. Windows has `USERPROFILE`, Linux has
+/// `HOME`, and both conventionally use a `Music` folder under it, so the empty
+/// path field shows something that could actually exist here.
+fn folder_hint() -> String {
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"));
+    match home {
+        Some(home) => Path::new(&home).join("Music").display().to_string(),
+        None => "Music".to_string(),
+    }
+}
+
 /// Show the stored settings in the settings page.
 fn apply_settings(ui: &AppWindow, settings: &Settings) {
     ui.set_settings_format_tier(
@@ -927,8 +967,8 @@ fn apply_settings(ui: &AppWindow, settings: &Settings) {
         }
         .into(),
     );
-    ui.set_settings_bitrate(settings.format.max_bitrate_kbps as i32);
-    ui.set_settings_cache_mib((settings.cache_limit_bytes / 1024 / 1024) as i32);
+    ui.set_settings_bitrate(settings.format.max_bitrate_kbps as f32);
+    ui.set_settings_cache_mib((settings.cache_limit_bytes / 1024 / 1024) as f32);
     ui.set_settings_artwork_format(settings.artwork.format.extension().into());
     ui.set_settings_artwork_quality(i32::from(settings.artwork.quality));
     ui.set_settings_folder_template(settings.folder_template.as_str().into());

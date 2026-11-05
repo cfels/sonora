@@ -8,8 +8,8 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use sonora_core::{
-    sort_key, AlbumId, Error, FolderId, LibraryStats, QUEUE_KEY, Result, ScanReport, ScannedTrack,
-    Settings, TrackId, TrackView, SETTINGS_KEY,
+    sort_key, AlbumId, Error, FolderId, LibraryStats, Result, ScanReport, ScannedTrack, Settings,
+    TrackId, TrackView, QUEUE_KEY, SETTINGS_KEY,
 };
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePool, SqlitePoolOptions,
@@ -566,13 +566,17 @@ impl Db {
     /// reseed a previously checkpointed shuffle.
     pub async fn load_queue(&self) -> Result<sonora_core::Queue> {
         let Some(raw) = self.get_setting(QUEUE_KEY).await? else {
-            return Ok(sonora_core::Queue::from_empty_snapshot(sonora_core::util::new_rng()));
+            return Ok(sonora_core::Queue::from_empty_snapshot(
+                sonora_core::util::new_rng(),
+            ));
         };
         match sonora_core::QueueSnapshot::from_json(&raw) {
             Ok(snapshot) => Ok(sonora_core::Queue::from_snapshot(snapshot)),
             Err(err) => {
                 log::warn!("ignoring unreadable queue document: {err}");
-                Ok(sonora_core::Queue::from_empty_snapshot(sonora_core::util::new_rng()))
+                Ok(sonora_core::Queue::from_empty_snapshot(
+                    sonora_core::util::new_rng(),
+                ))
             }
         }
     }
@@ -586,6 +590,20 @@ impl Db {
     /// instead of leaving a broken document in the database.
     pub async fn save_queue(&self, queue: &sonora_core::Queue) -> Result<()> {
         let snapshot = queue.snapshot();
+        match snapshot.to_json() {
+            Ok(document) => self.set_setting(QUEUE_KEY, &document).await,
+            Err(err) => {
+                log::warn!("could not serialise the queue: {err}");
+                Ok(())
+            }
+        }
+    }
+
+    /// Persist a queue snapshot directly.
+    ///
+    /// Used by the UI layer, which holds the engine (not the queue) and can
+    /// only get a snapshot out.
+    pub async fn save_queue_snapshot(&self, snapshot: &sonora_core::QueueSnapshot) -> Result<()> {
         match snapshot.to_json() {
             Ok(document) => self.set_setting(QUEUE_KEY, &document).await,
             Err(err) => {

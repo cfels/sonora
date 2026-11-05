@@ -340,6 +340,24 @@ impl Engine {
         lock(&self.shared).queue.set_repeat(repeat);
     }
 
+    /// Snapshot the playback queue for persistence.
+    ///
+    /// Returns the full queue state including the shuffle RNG, so a saved
+    /// snapshot can be restored verbatim on the next launch.
+    pub fn snapshot(&self) -> sonora_core::QueueSnapshot {
+        lock(&self.shared).queue.snapshot()
+    }
+
+    /// Restore a previously saved queue snapshot.
+    ///
+    /// Replaces the current queue with the snapshot's state, preserving the
+    /// RNG so that a resumed shuffle continues from where it left off.
+    /// Does not touch the audio pipeline or the current playback position.
+    pub fn restore_from_snapshot(&self, snapshot: sonora_core::QueueSnapshot) {
+        let mut shared = lock(&self.shared);
+        shared.queue = sonora_core::Queue::from_snapshot(snapshot);
+    }
+
     // ---------------------------------------------------------------- private
 
     fn start_track(&self, track: TrackId) -> Result<()> {

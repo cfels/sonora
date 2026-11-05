@@ -71,6 +71,13 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
     let lookup = Arc::new(Mutex::new(TrackLookup::default()));
 
     let engine = build_engine(&lookup);
+    // Restore the queue saved from the last session, if any.
+    if let Some(engine) = engine.as_ref() {
+        let saved = handle.block_on(ctx.db.load_queue());
+        if let Ok(saved) = saved {
+            engine.restore_from_snapshot(saved.snapshot());
+        }
+    }
     ui.set_playback_available(engine.is_some());
     if let Some(engine) = engine.as_ref() {
         ui.set_volume(engine.volume() as f32);
@@ -343,6 +350,15 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
     refresh_all(weak.clone(), ctx.clone(), handle.clone(), lookup);
 
     ui.run()?;
+
+    // Save the queue as it is right now so playback resumes on the next
+    // launch. A shutdown in the middle of a track preserves the playing
+    // track at the front of the restored queue.
+    if let Some(engine) = engine.clone() {
+        let snapshot = handle.block_on(async { engine.snapshot() });
+        let _ = handle.block_on(ctx.db.save_queue_snapshot(&snapshot));
+    }
+
     Ok(())
 }
 

@@ -338,16 +338,8 @@ impl Queue {
     pub fn snapshot(&self) -> QueueSnapshot {
         QueueSnapshot {
             current: self.current.map(|e| (e.track, e.rank)),
-            upcoming: self
-                .upcoming
-                .iter()
-                .map(|e| (e.track, e.rank))
-                .collect(),
-            history: self
-                .history
-                .iter()
-                .map(|e| (e.track, e.rank))
-                .collect(),
+            upcoming: self.upcoming.iter().map(|e| (e.track, e.rank)).collect(),
+            history: self.history.iter().map(|e| (e.track, e.rank)).collect(),
             shuffle: self.shuffle,
             repeat: self.repeat,
             rng_state: self.rng_state,
@@ -357,9 +349,7 @@ impl Queue {
     /// Restore a queue from a snapshot.
     pub fn from_snapshot(snapshot: QueueSnapshot) -> Self {
         Self {
-            current: snapshot
-                .current
-                .map(|(track, rank)| Entry { track, rank }),
+            current: snapshot.current.map(|(track, rank)| Entry { track, rank }),
             upcoming: snapshot
                 .upcoming
                 .into_iter()
@@ -402,9 +392,10 @@ pub struct QueueSnapshot {
     /// so the order matters when repeat-all recycles them.
     history: Vec<(TrackId, i64)>,
     shuffle: bool,
-    repeat: RepeatMode,/// Snapshot of the shuffle RNG so that restoring continues from where it
-/// left off; a bare `with_seed(now())` would reseed and change shuffled
-/// order on the next reshuffle.
+    repeat: RepeatMode,
+    /// Snapshot of the shuffle RNG so that restoring continues from where it
+    /// left off; a bare `with_seed(now())` would reseed and change shuffled
+    /// order on the next reshuffle.
     rng_state: u64,
 }
 
@@ -485,10 +476,7 @@ mod tests {
         queue.play_next(4);
         let snapshot = queue.snapshot();
         let restored = Queue::from_snapshot(snapshot);
-        assert_eq!(
-            restored.upcoming_tracks(),
-            vec![4, 5, 2, 3]
-        );
+        assert_eq!(restored.upcoming_tracks(), vec![4, 5, 2, 3]);
     }
 
     #[test]
@@ -585,16 +573,10 @@ mod tests {
         queue.play_next(99);
 
         queue.set_shuffle(true);
-        assert_ne!(
-            queue.upcoming_tracks(),
-            vec![99, 2, 3, 4, 5, 6, 7, 8]
-        );
+        assert_ne!(queue.upcoming_tracks(), vec![99, 2, 3, 4, 5, 6, 7, 8]);
 
         queue.set_shuffle(false);
-        assert_eq!(
-            queue.upcoming_tracks(),
-            vec![99, 2, 3, 4, 5, 6, 7, 8]
-        );
+        assert_eq!(queue.upcoming_tracks(), vec![99, 2, 3, 4, 5, 6, 7, 8]);
         assert_eq!(queue.current(), Some(1));
     }
 

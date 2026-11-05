@@ -23,4 +23,6 @@ pub use settings::{
     ArtworkFormat, ArtworkSettings, FolderTemplate, FormatPreference, FormatTier, Settings,
     DEFAULT_FOLDER_TEMPLATE, QUEUE_KEY, SETTINGS_KEY,
 };
-pub use util::{format_duration, new_rng, normalize_key, parse_artist_title, sort_key, without_extension};
+pub use util::{
+    format_duration, new_rng, normalize_key, parse_artist_title, sort_key, without_extension,
+};

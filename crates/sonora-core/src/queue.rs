@@ -9,6 +9,8 @@
 //! - The upcoming list can be reordered by dragging (see [`Queue::move_upcoming`]).
 //! - Turning shuffle off restores the order the tracks were originally queued
 //!   in, including tracks inserted with *play next*.
+//! - The queue is checkpointable: it can be saved to and restored from a
+//!   snapshot, so playback survives process restarts like the rest of the app.
 //!
 //! The queue is pure data: it knows nothing about GStreamer, files or the UI.
 //! That keeps the tricky ordering rules testable without an audio device, which
@@ -19,7 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::model::TrackId;
 
 /// What happens once the last queued track finishes.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RepeatMode {
     #[default]
     Off,
@@ -40,7 +42,7 @@ impl RepeatMode {
 }
 
 /// One queued track plus the order it should have when shuffle is off.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Entry {
     track: TrackId,
     /// Gaps are fine: only the relative order matters. Tracks queued with
@@ -49,7 +51,12 @@ struct Entry {
 }
 
 /// The upcoming tracks plus what is playing and what has already played.
-#[derive(Debug, Clone)]
+///
+/// Checkpointing only records the visible state (which track is playing, what
+/// is queued, what has been played, and the shuffle/repeat choices). The
+/// shuffle RNG is snapshotted so a restart resumes shuffle from where it left
+/// off rather than reseeding from wall-clock time.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Queue {
     current: Option<Entry>,
     upcoming: Vec<Entry>,
@@ -321,6 +328,85 @@ impl Queue {
         self.rng_state = state;
         state.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
+
+    /// Snapshot the queue for persistence.
+    ///
+    /// A snapshot is the only persistent representation of the queue; the
+    /// `Queue` struct itself is not persisted, just like the app's settings
+    /// are not persisted directly. Using a snapshot struct keeps the queue
+    /// module decoupled from the persistence layer the same way settings does.
+    pub fn snapshot(&self) -> QueueSnapshot {
+        QueueSnapshot {
+            current: self.current.map(|e| (e.track, e.rank)),
+            upcoming: self
+                .upcoming
+                .iter()
+                .map(|e| (e.track, e.rank))
+                .collect(),
+            history: self
+                .history
+                .iter()
+                .map(|e| (e.track, e.rank))
+                .collect(),
+            shuffle: self.shuffle,
+            repeat: self.repeat,
+            rng_state: self.rng_state,
+        }
+    }
+
+    /// Restore a queue from a snapshot.
+    pub fn from_snapshot(snapshot: QueueSnapshot) -> Self {
+        Self {
+            current: snapshot
+                .current
+                .map(|(track, rank)| Entry { track, rank }),
+            upcoming: snapshot
+                .upcoming
+                .into_iter()
+                .map(|(track, rank)| Entry { track, rank })
+                .collect(),
+            history: snapshot
+                .history
+                .into_iter()
+                .map(|(track, rank)| Entry { track, rank })
+                .collect(),
+            shuffle: snapshot.shuffle,
+            repeat: snapshot.repeat,
+            rng_state: snapshot.rng_state,
+        }
+    }
+
+    /// Derive a queue from an empty snapshot.
+    ///
+    /// Used to construct an "empty but valid" queue before anything has been
+    /// queued; preserve the RNG state so a restart does not reseed a
+    /// checkpointed shuffle.
+    pub fn from_empty_snapshot(rng_state: u64) -> Self {
+        Self::with_seed(rng_state)
+    }
+}
+
+/// A serializable snapshot of the playback queue.
+///
+/// Stored as a JSON document alongside settings, so the queue survives a
+/// restart and resumes the same way it looked when the app was last closed
+/// — same track playing, same upcoming order, same shuffle state, same RNG
+/// so reshuffles continue from where they left off.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct QueueSnapshot {
+    /// What is playing now, if anything.
+    current: Option<(TrackId, i64)>,
+    /// Upcoming tracks in order, with their ranks.
+    upcoming: Vec<(TrackId, i64)>,
+    /// Already played, most recent last — but stored for playback replay,
+    /// so the order matters when repeat-all recycles them.
+    history: Vec<(TrackId, i64)>,
+    shuffle: bool,
+    repeat: RepeatMode,
+    /// Snapshot of the shuffle RNG so that restoring continues from where it
+    /// left off; a bare `with_seed(now())` would reseed and change shuffled
+    /// order on the next reshuffle.
+    rng_state: u64,
 }
 
 #[cfg(test)]
@@ -329,6 +415,94 @@ mod tests {
 
     fn queued(tracks: &[TrackId]) -> Queue {
         Queue::from_tracks_with_seed(tracks.iter().copied(), 0x51_0A)
+    }
+
+    #[test]
+    fn snapshot_roundtrips_the_whole_queue_state() {
+        let mut queue = queued(&[1, 2, 3]);
+        queue.play_next(99);
+        queue.set_repeat(RepeatMode::All);
+        queue.set_shuffle(true);
+        let snapshot = queue.snapshot();
+        let mut restored = Queue::from_snapshot(snapshot);
+        assert_eq!(restored.current(), queue.current());
+        assert_eq!(restored.upcoming_tracks(), queue.upcoming_tracks());
+        assert_eq!(restored.history_tracks(), queue.history_tracks());
+        assert_eq!(restored.shuffle(), queue.shuffle());
+        assert_eq!(restored.repeat(), queue.repeat());
+        assert_eq!(restored.rng_state, queue.rng_state);
+        // Restore then advance once more: the RNG continues from where the
+        // snapshot left it, so a resumed shuffle is stable, not reshuffled.
+        let restored_next = restored.advance();
+        let original_next = {
+            let mut q = queued(&[1, 2, 3]);
+            q.play_next(99);
+            q.set_repeat(RepeatMode::All);
+            q.set_shuffle(true);
+            q.advance()
+        };
+        assert_eq!(restored_next, original_next);
+    }
+
+    #[test]
+    fn empty_queue_snapshot_returns_a_valid_empty_queue() {
+        let snapshot = Queue::new().snapshot();
+        assert!(snapshot.current.is_none());
+        assert!(snapshot.upcoming.is_empty());
+        assert!(snapshot.history.is_empty());
+        assert!(!snapshot.shuffle);
+        assert_eq!(snapshot.repeat, RepeatMode::Off);
+        let restored = Queue::from_snapshot(snapshot);
+        assert!(restored.is_empty());
+    }
+
+    #[test]
+    fn from_snapshot_reproduces_a_shuffle_turned_off() {
+        let mut queue = queued(&[1, 2, 3, 4]);
+        queue.set_shuffle(true);
+        queue.set_shuffle(false); // restores queued order
+        let snapshot = queue.snapshot();
+        let restored = Queue::from_snapshot(snapshot);
+        assert_eq!(restored.upcoming_tracks(), vec![2, 3, 4]);
+    }
+
+    #[test]
+    fn restore_keeps_play_next_tracks_at_the_front() {
+        let mut queue = queued(&[1, 2, 3]);
+        queue.play_next(5);
+        queue.play_next(4);
+        let snapshot = queue.snapshot();
+        let restored = Queue::from_snapshot(snapshot);
+        assert_eq!(
+            restored.upcoming_tracks(),
+            vec![4, 5, 2, 3]
+        );
+    }
+
+    #[test]
+    fn restore_keeps_repeat_one_state() {
+        let mut queue = queued(&[1, 2]);
+        queue.set_repeat(RepeatMode::One);
+        queue.advance();
+        let snapshot = queue.snapshot();
+        let mut restored = Queue::from_snapshot(snapshot);
+        assert_eq!(restored.current(), Some(1));
+        assert_eq!(restored.repeat(), RepeatMode::One);
+        assert_eq!(restored.advance(), Some(1));
+    }
+
+    #[test]
+    fn history_is_restored_and_recycled_on_repeat_all_resume() {
+        let mut queue = queued(&[1, 2]);
+        queue.advance(); // plays 2, history=[1]
+        assert_eq!(queue.advance(), None);
+        queue.set_repeat(RepeatMode::All);
+        let snapshot = queue.snapshot();
+        let mut restored = Queue::from_snapshot(snapshot);
+        restored.set_repeat(RepeatMode::All);
+        assert_eq!(restored.advance(), Some(1));
+        assert_eq!(restored.current(), Some(1));
+        assert_eq!(restored.history_tracks(), vec![2]);
     }
 
     #[test]
@@ -399,10 +573,16 @@ mod tests {
         queue.play_next(99);
 
         queue.set_shuffle(true);
-        assert_ne!(queue.upcoming_tracks(), vec![99, 2, 3, 4, 5, 6, 7, 8]);
+        assert_ne!(
+            queue.upcoming_tracks(),
+            vec![99, 2, 3, 4, 5, 6, 7, 8]
+        );
 
         queue.set_shuffle(false);
-        assert_eq!(queue.upcoming_tracks(), vec![99, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(
+            queue.upcoming_tracks(),
+            vec![99, 2, 3, 4, 5, 6, 7, 8]
+        );
         assert_eq!(queue.current(), Some(1));
     }
 
@@ -420,6 +600,7 @@ mod tests {
     fn dragged_order_survives_a_shuffle_round_trip() {
         let mut queue = queued(&[1, 2, 3, 4]);
         queue.move_upcoming(2, 0);
+
         queue.set_shuffle(true);
         queue.set_shuffle(false);
         assert_eq!(queue.upcoming_tracks(), vec![4, 2, 3]);

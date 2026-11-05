@@ -778,7 +778,7 @@ fn refresh_all(
         remember(&lookup, &tracks);
 
         let recent_rows = track_rows(&recent);
-        let track_rows = track_rows(&tracks);
+        let all_rows = track_rows(&tracks);
         let most_played_rows = track_rows(&most_played);
         let favourite_rows = track_rows(&favourites);
         let history_rows = history_rows(&history);
@@ -791,7 +791,7 @@ fn refresh_all(
             ui.set_artist_count(stats.artists as i32);
             ui.set_library_duration(duration.into());
             ui.set_recent_tracks(model(recent_rows));
-            ui.set_all_tracks(model(track_rows));
+            ui.set_all_tracks(model(all_rows));
             ui.set_most_played_tracks(model(most_played_rows));
             ui.set_favourite_tracks(model(favourite_rows));
             ui.set_history_tracks(model(history_rows));

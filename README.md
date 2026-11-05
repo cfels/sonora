@@ -1,10 +1,15 @@
 # this is sonora.
 
 your new home for all things music.
+
 supported desktop platforms: winjews & loonix
+
 mobile ones: android
+
 rust core, slint ui, gstreamer playback, sql storage
+
 no jewscript or electroon
+
 
 ## docs
 

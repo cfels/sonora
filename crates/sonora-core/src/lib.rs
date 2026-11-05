@@ -18,9 +18,9 @@ pub use model::{
     is_supported_audio, AlbumId, ArtistId, AudioFormat, FolderId, LibraryStats, ScanError,
     ScanReport, ScannedTrack, TrackId, TrackView,
 };
-pub use queue::{Queue, RepeatMode};
+pub use queue::{Queue, QueueSnapshot, RepeatMode};
 pub use settings::{
     ArtworkFormat, ArtworkSettings, FolderTemplate, FormatPreference, FormatTier, Settings,
-    DEFAULT_FOLDER_TEMPLATE, SETTINGS_KEY,
+    DEFAULT_FOLDER_TEMPLATE, QUEUE_KEY, SETTINGS_KEY,
 };
-pub use util::{format_duration, normalize_key, parse_artist_title, sort_key, without_extension};
+pub use util::{format_duration, new_rng, normalize_key, parse_artist_title, sort_key, without_extension};

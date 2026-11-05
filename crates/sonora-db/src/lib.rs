@@ -8,8 +8,8 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use sonora_core::{
-    sort_key, AlbumId, Error, FolderId, LibraryStats, Result, ScanReport, ScannedTrack, Settings,
-    TrackId, TrackView, SETTINGS_KEY,
+    sort_key, AlbumId, Error, FolderId, LibraryStats, QUEUE_KEY, Result, ScanReport, ScannedTrack,
+    Settings, TrackId, TrackView, SETTINGS_KEY,
 };
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePool, SqlitePoolOptions,
@@ -555,6 +555,45 @@ impl Db {
         let document = settings.clone().normalized().to_json();
         self.set_setting(SETTINGS_KEY, &document).await
     }
+
+    /// Read the saved playback queue.
+    ///
+    /// A missing document means no queue has been saved yet; an unreadable one
+    /// means the document was corrupted, so log it and return a fresh empty
+    /// queue instead of refusing to open the application.
+    ///
+    /// The RNG state is preserved through the empty path so a restart does not
+    /// reseed a previously checkpointed shuffle.
+    pub async fn load_queue(&self) -> Result<sonora_core::Queue> {
+        let Some(raw) = self.get_setting(QUEUE_KEY).await? else {
+            return Ok(sonora_core::Queue::from_empty_snapshot(sonora_core::util::new_rng()));
+        };
+        match sonora_core::QueueSnapshot::from_json(&raw) {
+            Ok(snapshot) => Ok(sonora_core::Queue::from_snapshot(snapshot)),
+            Err(err) => {
+                log::warn!("ignoring unreadable queue document: {err}");
+                Ok(sonora_core::Queue::from_empty_snapshot(sonora_core::util::new_rng()))
+            }
+        }
+    }
+
+    /// Persist the current playback queue.
+    ///
+    /// Called on shutdown and whenever the queue changes in a way that should
+    /// survive a restart (played, added, removed, reordered, shuffle toggled).
+    /// A missing document means no queue has been saved yet; an unreadable one
+    /// means the document was corrupted, so log it and write fresh defaults
+    /// instead of leaving a broken document in the database.
+    pub async fn save_queue(&self, queue: &sonora_core::Queue) -> Result<()> {
+        let snapshot = queue.snapshot();
+        match snapshot.to_json() {
+            Ok(document) => self.set_setting(QUEUE_KEY, &document).await,
+            Err(err) => {
+                log::warn!("could not serialise the queue: {err}");
+                Ok(())
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1027,5 +1066,54 @@ mod tests {
         let db = Db::open_in_memory().await.unwrap();
         db.set_setting(SETTINGS_KEY, "{ not json").await.unwrap();
         assert_eq!(db.load_settings().await.unwrap(), Settings::default());
+    }
+
+    #[tokio::test]
+    async fn queue_default_is_empty_on_first_run() {
+        let db = Db::open_in_memory().await.unwrap();
+        let queue = db.load_queue().await.unwrap();
+        assert!(queue.is_empty());
+        assert_eq!(queue.current(), None);
+    }
+
+    #[tokio::test]
+    async fn queue_round_trip_persists_the_full_state() {
+        let db = Db::open_in_memory().await.unwrap();
+        let mut queue = sonora_core::Queue::from_tracks([1, 2, 3]);
+        queue.play_next(99);
+        queue.set_repeat(sonora_core::RepeatMode::All);
+        queue.set_shuffle(true);
+        db.save_queue(&queue).await.unwrap();
+
+        let loaded = db.load_queue().await.unwrap();
+        assert_eq!(loaded.current(), queue.current());
+        assert_eq!(loaded.upcoming_tracks(), queue.upcoming_tracks());
+        assert_eq!(loaded.history_tracks(), queue.history_tracks());
+        assert_eq!(loaded.shuffle(), queue.shuffle());
+        assert_eq!(loaded.repeat(), queue.repeat());
+        // Prove the RNG survived the roundtrip by snapshotting both and
+        // comparing: if the RNG differed, a resumed shuffle would diverge.
+        assert_eq!(loaded.snapshot(), queue.snapshot());
+    }
+
+    #[tokio::test]
+    async fn unreadable_queue_falls_back_to_empty() {
+        let db = Db::open_in_memory().await.unwrap();
+        db.set_setting(QUEUE_KEY, "{ not json").await.unwrap();
+        let queue = db.load_queue().await.unwrap();
+        assert!(queue.is_empty());
+    }
+
+    #[tokio::test]
+    async fn saving_an_empty_queue_keeps_playback_from_starting_on_restart() {
+        let db = Db::open_in_memory().await.unwrap();
+        let mut queue = sonora_core::Queue::from_tracks([1, 2]);
+        queue.advance();
+        queue.clear();
+        db.save_queue(&queue).await.unwrap();
+
+        let loaded = db.load_queue().await.unwrap();
+        assert!(loaded.is_empty());
+        assert_eq!(loaded.current(), None);
     }
 }

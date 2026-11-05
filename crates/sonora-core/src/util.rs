@@ -41,6 +41,19 @@ pub fn sort_key(value: &str) -> String {
     normalized
 }
 
+/// Best-effort RNG seed for a brand-new queue that has never been
+/// checkpointed yet.
+///
+/// Returns wall-clock time as a u64, guaranteed non-zero so the xorshift
+/// in [`crate::queue::Queue`] never hits its zero-state bug.
+pub fn new_rng() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9E37_79B9_7F4A_7C15)
+        | 1
+}
+
 /// Strip a trailing audio extension: `"03 - Song.flac"` → `"03 - Song"`.
 pub fn without_extension(path: &Path) -> String {
     path.file_stem()

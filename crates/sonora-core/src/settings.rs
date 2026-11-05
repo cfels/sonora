@@ -14,6 +14,8 @@ use crate::model::{AudioFormat, TrackView};
 
 /// Settings document key in the `settings` table.
 pub const SETTINGS_KEY: &str = "settings";
+/// Queue document key in the `settings` table.
+pub const QUEUE_KEY: &str = "queue";
 
 /// Lowest bitrate ceiling we accept, in kbit/s.
 pub const MIN_BITRATE_KBPS: u32 = 32;

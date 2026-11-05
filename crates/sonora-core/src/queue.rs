@@ -392,7 +392,7 @@ impl Queue {
 /// restart and resumes the same way it looked when the app was last closed
 /// — same track playing, same upcoming order, same shuffle state, same RNG
 /// so reshuffles continue from where they left off.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct QueueSnapshot {
     /// What is playing now, if anything.
     current: Option<(TrackId, i64)>,
@@ -402,11 +402,23 @@ pub struct QueueSnapshot {
     /// so the order matters when repeat-all recycles them.
     history: Vec<(TrackId, i64)>,
     shuffle: bool,
-    repeat: RepeatMode,
-    /// Snapshot of the shuffle RNG so that restoring continues from where it
-    /// left off; a bare `with_seed(now())` would reseed and change shuffled
-    /// order on the next reshuffle.
+    repeat: RepeatMode,/// Snapshot of the shuffle RNG so that restoring continues from where it
+/// left off; a bare `with_seed(now())` would reseed and change shuffled
+/// order on the next reshuffle.
     rng_state: u64,
+}
+
+impl QueueSnapshot {
+    /// Serialize the snapshot to JSON. Used by the persistence layer so the
+    /// raw document can be stored in a single `settings` table row.
+    pub fn to_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string(self)
+    }
+
+    /// Deserialize a snapshot from a JSON document stored in the database.
+    pub fn from_json(raw: &str) -> serde_json::Result<Self> {
+        serde_json::from_str(raw)
+    }
 }
 
 #[cfg(test)]

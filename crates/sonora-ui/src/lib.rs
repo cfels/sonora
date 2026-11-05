@@ -355,7 +355,7 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         ui.on_rating_changed(move |id, current| {
             // Clicking cycles 0 → 1 → … → 5 → 0, so one control can both set
             // and clear a rating without a second button.
-            let next = if current < 0 || current >= 5 {
+            let next = if !(0..5).contains(&current) {
                 0
             } else {
                 current + 1

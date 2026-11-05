@@ -80,6 +80,9 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
     }
     ui.set_playback_available(engine.is_some());
     if let Some(engine) = engine.as_ref() {
+        refresh_queue_tabs(&weak, engine);
+    }
+    if let Some(engine) = engine.as_ref() {
         ui.set_volume(engine.volume() as f32);
     }
     if let Some(engine) = engine.clone() {
@@ -1004,6 +1007,18 @@ fn set_playing(weak: &Weak<AppWindow>, playing: bool) {
     let _ = weak.upgrade_in_event_loop(move |ui| ui.set_playing(playing));
 }
 
+/// Keep the three queue-tab counts in sync with the engine state.
+fn refresh_queue_tabs(weak: &Weak<AppWindow>, engine: &Engine) {
+    let current = engine.current().is_some();
+    let upcoming = engine.upcoming().len() as i32;
+    let history = engine.history().len() as i32;
+    let _ = weak.upgrade_in_event_loop(move |ui| {
+        ui.set_current_count(if current { 1 } else { 0 });
+        ui.set_upcoming_count(upcoming);
+        ui.set_history_count(history);
+    });
+}
+
 /// Push the queue and the now-playing labels to the window.
 fn refresh_playback(weak: &Weak<AppWindow>, engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) {
     let entries = queue_rows(engine, lookup);
@@ -1014,6 +1029,8 @@ fn refresh_playback(weak: &Weak<AppWindow>, engine: &Engine, lookup: &Arc<Mutex<
         ui.set_now_playing_title(title.into());
         ui.set_now_playing_subtitle(subtitle.into());
     });
+
+    refresh_queue_tabs(weak, engine);
 }
 
 fn now_playing(engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) -> (String, String) {

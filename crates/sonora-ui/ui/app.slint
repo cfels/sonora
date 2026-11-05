@@ -337,6 +337,9 @@ component TransportBar inherits Rectangle {
     in property <string> duration-label: "0:00";
     in property <float> volume: 1.0;
     in property <image> artwork;
+    in property <int> current-count: 0;
+    in property <int> upcoming-count: 0;
+    in property <int> history-count: 0;
 
     callback toggle();
     callback previous();
@@ -479,6 +482,84 @@ component TransportBar inherits Rectangle {
             primary: false;
             clicked => {
                 root.queue-toggle();
+            }
+        }
+
+        // inline queue tab indicators using only built-in elements
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: center;
+
+            current-dot := Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: #f0b13c;
+            }
+
+            current-label := Text {
+                text: "Current";
+                color: Palette.muted;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+
+            current-count-text := Text {
+                text: "\{root.current-count}";
+                color: Palette.text;
+                font-size: 11px;
+                font-weight: 600;
+                width: 20px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+
+            upcoming-dot := Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: #4a9eff;
+            }
+
+            upcoming-label := Text {
+                text: "Upcoming";
+                color: Palette.muted;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+
+            upcoming-count-text := Text {
+                text: "\{root.upcoming-count}";
+                color: Palette.text;
+                font-size: 11px;
+                font-weight: 600;
+                width: 20px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+
+            history-dot := Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: #6b7280;
+            }
+
+            history-label := Text {
+                text: "History";
+                color: Palette.muted;
+                font-size: 11px;
+                vertical-alignment: center;
+            }
+
+            history-count-text := Text {
+                text: "\{root.history-count}";
+                color: Palette.text;
+                font-size: 11px;
+                font-weight: 600;
+                width: 20px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
             }
         }
     }
@@ -889,6 +970,9 @@ export component AppWindow inherits Window {
     in property <string> duration-label: "0:00";
     in property <float> volume: 1.0;
     in property <[QueueRow]> queue-entries;
+    in property <int> current-count: 0;
+    in property <int> upcoming-count: 0;
+    in property <int> history-count: 0;
     in-out property <bool> queue-open: false;
     in-out property <bool> onboarding-open: false;
     in-out property <int> onboarding-step: 0;
@@ -1503,6 +1587,9 @@ export component AppWindow inherits Window {
             duration-label: root.duration-label;
             volume: root.volume;
             artwork: root.artwork;
+            current-count: root.current-count;
+            upcoming-count: root.upcoming-count;
+            history-count: root.history-count;
 
             toggle() => {
                 root.toggle-playback();

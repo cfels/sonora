@@ -49,7 +49,7 @@ downloads and the Android build harness are planned and documented in
 ## how 2 build
 
 All commands below build the host target (Windows or Linux). Android is built
-through the NDK harness described in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md),
+through the NDK harness described in [DEVELOPMENT.md](docs/DEVELOPMENT.md),
 which is not wired into the repository yet.
 
 Requirements:

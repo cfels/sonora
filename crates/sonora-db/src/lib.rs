@@ -33,7 +33,10 @@ pub struct Db {
 const TRACK_COLUMNS: &str = "
     t.id, t.title, ar.name AS artist_name, al.title AS album_title,
     aar.name AS album_artist_name, t.track_no, t.disc_no, t.year,
-    t.duration_ms, t.codec, t.bitrate_kbps, t.file_size, t.added_at, t.path
+    t.duration_ms, t.codec, t.bitrate_kbps, t.file_size, t.added_at, t.path,
+    COALESCE(act.favourite, 0) AS favourite,
+    COALESCE(act.rating, 0) AS rating,
+    COALESCE(act.play_count, 0) AS play_count
 ";
 
 const TRACK_FROM: &str = "
@@ -41,6 +44,7 @@ const TRACK_FROM: &str = "
     LEFT JOIN artists ar ON ar.id = t.artist_id
     LEFT JOIN albums al ON al.id = t.album_id
     LEFT JOIN artists aar ON aar.id = al.album_artist_id
+    LEFT JOIN track_activity act ON act.track_id = t.id
 ";
 
 /// Maps `sqlx` failures onto our own error type so callers can use `?`.
@@ -177,6 +181,7 @@ impl Db {
              LEFT JOIN artists ar ON ar.id = t.artist_id
              LEFT JOIN albums al ON al.id = t.album_id
              LEFT JOIN artists aar ON aar.id = al.album_artist_id
+             LEFT JOIN track_activity act ON act.track_id = t.id
              WHERE tracks_fts MATCH ?1
              ORDER BY rank
              LIMIT ?2"
@@ -215,6 +220,194 @@ impl Db {
                 duration_ms: row.get("duration_ms"),
             })
             .collect())
+    }
+
+    // ---------------------------------------------------------------- activity
+
+    /// Record that playback started on `track`.
+    ///
+    /// A history row is appended for every start, and the counters on the
+    /// activity row move with it. The two writes share a transaction so a
+    /// crash cannot leave a history entry without its count.
+    pub async fn record_play(&self, track: TrackId) -> Result<()> {
+        let at = now();
+        let mut tx = self.pool.begin().await.db()?;
+        sqlx::query("INSERT INTO play_history (track_id, played_at, skipped) VALUES (?1, ?2, 0)")
+            .bind(track)
+            .bind(at)
+            .execute(&mut *tx)
+            .await
+            .db()?;
+        sqlx::query(
+            "INSERT INTO track_activity (track_id, play_count, last_played_at, updated_at)
+             VALUES (?1, 1, ?2, ?2)
+             ON CONFLICT (track_id) DO UPDATE SET
+                 play_count = track_activity.play_count + 1,
+                 last_played_at = excluded.last_played_at,
+                 updated_at = excluded.updated_at",
+        )
+        .bind(track)
+        .bind(at)
+        .execute(&mut *tx)
+        .await
+        .db()?;
+        tx.commit().await.db()?;
+        Ok(())
+    }
+
+    /// Record that the user moved away from `track` before it finished.
+    ///
+    /// The most recent unskipped history row for the track is marked, which is
+    /// the play that was just interrupted. A skip with no preceding play (the
+    /// table can only be written from the UI) still bumps the counter.
+    pub async fn record_skip(&self, track: TrackId) -> Result<()> {
+        let at = now();
+        let mut tx = self.pool.begin().await.db()?;
+        sqlx::query(
+            "UPDATE play_history SET skipped = 1
+             WHERE id = (
+                 SELECT id FROM play_history
+                 WHERE track_id = ?1 AND skipped = 0
+                 ORDER BY played_at DESC, id DESC
+                 LIMIT 1
+             )",
+        )
+        .bind(track)
+        .execute(&mut *tx)
+        .await
+        .db()?;
+        sqlx::query(
+            "INSERT INTO track_activity (track_id, skip_count, last_skipped_at, updated_at)
+             VALUES (?1, 1, ?2, ?2)
+             ON CONFLICT (track_id) DO UPDATE SET
+                 skip_count = track_activity.skip_count + 1,
+                 last_skipped_at = excluded.last_skipped_at,
+                 updated_at = excluded.updated_at",
+        )
+        .bind(track)
+        .bind(at)
+        .execute(&mut *tx)
+        .await
+        .db()?;
+        tx.commit().await.db()?;
+        Ok(())
+    }
+
+    /// Set a star rating. `0` clears it; values above five are clamped.
+    pub async fn set_rating(&self, track: TrackId, rating: u8) -> Result<()> {
+        let rating = i64::from(rating.min(5));
+        sqlx::query(
+            "INSERT INTO track_activity (track_id, rating, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT (track_id) DO UPDATE SET
+                 rating = excluded.rating,
+                 updated_at = excluded.updated_at",
+        )
+        .bind(track)
+        .bind(rating)
+        .bind(now())
+        .execute(&self.pool)
+        .await
+        .db()?;
+        Ok(())
+    }
+
+    /// Star or unstar a track.
+    pub async fn set_favourite(&self, track: TrackId, favourite: bool) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO track_activity (track_id, favourite, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT (track_id) DO UPDATE SET
+                 favourite = excluded.favourite,
+                 updated_at = excluded.updated_at",
+        )
+        .bind(track)
+        .bind(if favourite { 1i64 } else { 0 })
+        .bind(now())
+        .execute(&self.pool)
+        .await
+        .db()?;
+        Ok(())
+    }
+
+    /// Recent plays, newest first. Each row carries the track as it looks now,
+    /// so editing a tag updates every historical entry too.
+    pub async fn history(&self, limit: i64, offset: i64) -> Result<Vec<HistoryEntry>> {
+        let sql = format!(
+            "SELECT h.id AS history_id, h.played_at AS history_played_at,
+                    h.skipped AS history_skipped, {TRACK_COLUMNS}
+             FROM play_history h
+             JOIN tracks t ON t.id = h.track_id
+             LEFT JOIN artists ar ON ar.id = t.artist_id
+             LEFT JOIN albums al ON al.id = t.album_id
+             LEFT JOIN artists aar ON aar.id = al.album_artist_id
+             LEFT JOIN track_activity act ON act.track_id = t.id
+             ORDER BY h.played_at DESC, h.id DESC
+             LIMIT ?1 OFFSET ?2"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows
+            .iter()
+            .map(|row| HistoryEntry {
+                id: row.get("history_id"),
+                played_at: row.get("history_played_at"),
+                skipped: row.get::<i64, _>("history_skipped") != 0,
+                track: map_track(row),
+            })
+            .collect())
+    }
+
+    /// Starred tracks, most recently played first.
+    pub async fn favourites(&self, limit: i64) -> Result<Vec<TrackView>> {
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} {TRACK_FROM}
+             WHERE act.favourite = 1
+             ORDER BY COALESCE(act.last_played_at, 0) DESC, t.title
+             LIMIT ?1"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_track).collect())
+    }
+
+    /// Tracks ordered by how often playback started on them.
+    pub async fn most_played(&self, limit: i64) -> Result<Vec<TrackView>> {
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} {TRACK_FROM}
+             WHERE act.play_count > 0
+             ORDER BY act.play_count DESC, COALESCE(act.last_played_at, 0) DESC, t.title
+             LIMIT ?1"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_track).collect())
+    }
+
+    /// Distinct tracks ordered by their last play, for the Home shelf.
+    pub async fn recently_played(&self, limit: i64) -> Result<Vec<TrackView>> {
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} {TRACK_FROM}
+             WHERE act.last_played_at IS NOT NULL
+             ORDER BY act.last_played_at DESC
+             LIMIT ?1"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_track).collect())
     }
 
     // ------------------------------------------------------------- scan write
@@ -639,6 +832,15 @@ pub struct AlbumSummary {
     pub duration_ms: i64,
 }
 
+/// One row on the History page: a play event plus the track it refers to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryEntry {
+    pub id: i64,
+    pub played_at: i64,
+    pub skipped: bool,
+    pub track: TrackView,
+}
+
 fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
@@ -665,6 +867,9 @@ fn map_track(row: &SqliteRow) -> TrackView {
         file_size: row.get("file_size"),
         added_at: row.get("added_at"),
         path: PathBuf::from(row.get::<String, _>("path")),
+        favourite: row.get::<i64, _>("favourite") != 0,
+        rating: row.get("rating"),
+        play_count: row.get("play_count"),
     }
 }
 
@@ -1133,5 +1338,124 @@ mod tests {
         let loaded = db.load_queue().await.unwrap();
         assert!(loaded.is_empty());
         assert_eq!(loaded.current(), None);
+    }
+
+    async fn seed_two_tracks(db: &Db) -> (TrackId, TrackId) {
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let outcomes = db
+            .upsert_scanned(
+                folder,
+                run,
+                &[
+                    track("/music/a.mp3", "Windowlicker", "Aphex Twin", "Windowlicker"),
+                    track("/music/b.mp3", "Xtal", "Aphex Twin", "SAW"),
+                ],
+            )
+            .await
+            .unwrap();
+        let id = |outcome: &UpsertOutcome| match outcome {
+            UpsertOutcome::Imported(id) => *id,
+            other => panic!("expected an import, got {other:?}"),
+        };
+        (id(&outcomes[0]), id(&outcomes[1]))
+    }
+
+    #[tokio::test]
+    async fn plays_build_history_and_counts() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, second) = seed_two_tracks(&db).await;
+
+        db.record_play(first).await.unwrap();
+        db.record_play(first).await.unwrap();
+        db.record_play(second).await.unwrap();
+
+        let history = db.history(10, 0).await.unwrap();
+        assert_eq!(history.len(), 3);
+        // Newest first, and a fresh play is not a skip.
+        assert_eq!(history[0].track.id, second);
+        assert!(!history[0].skipped);
+        assert_eq!(history[1].track.id, first);
+
+        let most_played = db.most_played(10).await.unwrap();
+        assert_eq!(most_played[0].id, first);
+        assert_eq!(most_played[0].play_count, 2);
+        assert_eq!(most_played[1].id, second);
+
+        let recently_played = db.recently_played(10).await.unwrap();
+        assert_eq!(recently_played.len(), 2);
+        assert!(recently_played.iter().any(|track| track.id == second));
+    }
+
+    #[tokio::test]
+    async fn a_skip_marks_the_play_it_interrupted() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, _) = seed_two_tracks(&db).await;
+
+        db.record_play(first).await.unwrap();
+        db.record_skip(first).await.unwrap();
+
+        let history = db.history(10, 0).await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert!(history[0].skipped);
+
+        let skip_count: i64 =
+            sqlx::query_scalar("SELECT skip_count FROM track_activity WHERE track_id = ?1")
+                .bind(first)
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
+        assert_eq!(skip_count, 1);
+        // A skip is still a play that started.
+        assert_eq!(db.track(first).await.unwrap().unwrap().play_count, 1);
+    }
+
+    #[tokio::test]
+    async fn favourites_and_ratings_round_trip() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, second) = seed_two_tracks(&db).await;
+
+        db.set_favourite(first, true).await.unwrap();
+        db.set_rating(first, 4).await.unwrap();
+
+        let favourite = db.favourites(10).await.unwrap();
+        assert_eq!(favourite.len(), 1);
+        assert_eq!(favourite[0].id, first);
+        assert!(favourite[0].favourite);
+        assert_eq!(favourite[0].rating, 4);
+        assert_eq!(favourite[0].play_count, 0);
+
+        // Ratings above five are clamped instead of being rejected.
+        db.set_rating(second, 99).await.unwrap();
+        assert_eq!(db.track(second).await.unwrap().unwrap().rating, 5);
+
+        // Unstarring removes the row from the favourites view.
+        db.set_favourite(first, false).await.unwrap();
+        assert!(db.favourites(10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn deleting_a_track_removes_its_activity() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, _) = seed_two_tracks(&db).await;
+        db.record_play(first).await.unwrap();
+        db.set_favourite(first, true).await.unwrap();
+
+        sqlx::query("DELETE FROM tracks WHERE id = ?1")
+            .bind(first)
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        let activity: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM track_activity")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        let history: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM play_history")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(activity, 0);
+        assert_eq!(history, 0);
     }
 }

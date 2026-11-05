@@ -1,9 +1,9 @@
 # Sonora architecture
 
-Status: phase 1 complete; phase 2 (playback, transport, queue) and the first
-slices of phases 3 and 4 (artwork, keyless metadata, lyrics) are implemented.
-Sections marked *(planned)* describe modules that are designed but not yet
-written.
+Status: phase 1 complete; phase 2 (playback, transport, queue, play activity) and
+the first slices of phases 3 and 4 (artwork, keyless metadata, lyrics) are
+implemented. Sections marked *(planned)* describe modules that are designed but
+not yet written.
 
 ## Guiding constraint
 
@@ -102,7 +102,7 @@ depending on `sonora-core` and (where they persist data) `sonora-db`.
 - Search responses carry a generation number; a stale result is discarded, so
   fast typing cannot display an older query's rows.
 
-## Data model (migrations `0001_init.sql`, `0002_lyrics.sql`)
+## Data model (migrations `0001_init.sql`, `0002_lyrics.sql`, `0003_play_activity.sql`)
 
 | Table | Purpose |
 |---|---|
@@ -113,6 +113,8 @@ depending on `sonora-core` and (where they persist data) `sonora-db`.
 | `genres`, `track_genres` | Many-to-many; a file tagged "Rock; Pop" gets both |
 | `tracks_fts` | FTS5 index over title/artist/album/album artist |
 | `lyrics` | Fetched lyrics per track (plain + LRC), cascading on delete |
+| `track_activity` | One row per track: play/skip counts, rating, favourite, last play |
+| `play_history` | Append-only play log, cascading on delete |
 | `settings` | Typed key/value store (JSON values) |
 | `scan_runs` | Audit trail: what each scan did |
 
@@ -131,6 +133,10 @@ Notable choices:
   load and save, so a hand-edited database or a document written by an older
   version can never produce an unusable state. An unreadable document is logged
   and replaced by defaults rather than blocking startup.
+- **Play activity is split in two**: `track_activity` keeps the counters a list
+  needs without scanning history, and `play_history` is the append-only log the
+  History page reads. A skip marks the most recent play for that track instead
+  of appending a second row, so a skipped track is still one listen in the log.
 - Album artists fall back to the track artist. Files with no album tag are not
   forced into a fake album.
 
@@ -152,9 +158,9 @@ Notable choices:
 ## UI structure
 
 A single window: fixed sidebar, header with global search, and a content region
-that switches on `section` (`home`, `tracks`, `albums`, `folders`). The palette
-is a Slint global (`Palette`) so the planned light theme and accent picker only
-have to override that one place.
+that switches on `section` (`home`, `tracks`, `albums`, `history`, `favourites`,
+`folders`, `settings`). The palette is a Slint global (`Palette`) so the planned
+light theme and accent picker only have to override that one place.
 
 Model state (track lists, album list, folder list, counters) is pushed from Rust
 as fresh `ModelRc`s on every refresh. There is no two-way binding of library

@@ -2,14 +2,12 @@
 > this is ai slop
 > i am just an unemployed retard whose expertise does not include coding
 > 
-> i make slight adjustments and will continue until this project fully meets my expectations whilst also maybe being usable for other h*man beings
+> i make slight adjustments and will continue until this project fully meets my expectations whilst also probably going to be usable for other h*man beings, as i dont consider my current ideas to be opinionated
 
 > [!CAUTION]
-> sonora is still an early work in progress. it is **not currently suitable for casual or everyday usage**, and some of the features described below are still being built.
+> sonora is still an early work in progress - currently not suitable for casual or everyday usage, and some of the features described below are incomplete/yet to be made
 >
-> don't assume something exists just because it's mentioned here. check the [status](#status) and [roadmap](docs/ROADMAP.md) before getting too excited.
->
-> [track development](https://github.com/takyon303/sonora/commits/main/)
+> [track the status](#status) [or commit history](/commits/main/)
 
 # this is *sonora,* your new home for all things music.
 

@@ -1,15 +1,21 @@
+> [!CAUTION]
+> sonora is currently an early work in progress - isn't meant for casual usage, and doesn't meet all the criteria of this readme - [track the status](#status) [or commit history](/commits/main/)
+
 # this is sonora.
 
 your new home for all things music.
 
-supported desktop platforms: winjews & loonix
-
-mobile ones: android
+supported platforms: winjews & loonix + android
 
 rust core, slint ui, gstreamer playback, sql storage
 
 no jewscript or electroon
 
+## ok but wdym bro
+
+- listen & download music from soulseek
+- track your listening history & discover on last.fm
+- (desktop exclusive) sync your library with external devices
 
 ## docs
 
@@ -90,7 +96,7 @@ cargo run -p sonora-app -- --scan ~/Music
 The library database lives in the platform data directory (`sonora --where`
 prints the exact path). Set `SONORA_DATA_DIR` to override it.
 
-## Licence
+## license
 
 Sonora is free software licensed under GPL3+
 

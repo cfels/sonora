@@ -224,6 +224,25 @@ impl Db {
             .collect())
     }
 
+    /// Every track on one album, in the order the album was recorded.
+    ///
+    /// Disc and track numbers come from tags, so they are missing on loose
+    /// files; those sort last rather than ahead of a numbered side, which is
+    /// what a plain `ORDER BY` would do with `NULL`.
+    pub async fn album_tracks(&self, album: AlbumId) -> Result<Vec<TrackView>> {
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} {TRACK_FROM}
+             WHERE t.album_id = ?1
+             ORDER BY COALESCE(t.disc_no, 1), COALESCE(t.track_no, 9999), t.title"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(album)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_track).collect())
+    }
+
     // ---------------------------------------------------------------- activity
 
     /// Record that playback started on `track`.
@@ -1156,6 +1175,52 @@ mod tests {
         assert_eq!(stored.replay_gain_album_peak, Some(0.75));
         // The engine applies the track gain when a file carries both values.
         assert_eq!(stored.effective_replay_gain_db(), Some(-6.25));
+    }
+
+    #[tokio::test]
+    async fn album_tracks_lists_one_album_in_track_order() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+
+        let mut first = track("/music/1.mp3", "Xtal", "Aphex Twin", "SAW 85-92");
+        first.track_no = Some(1);
+        let mut second = track("/music/2.mp3", "Tha", "Aphex Twin", "SAW 85-92");
+        second.track_no = Some(2);
+        // A file with no track number must sort after the numbered ones.
+        let mut loose = track("/music/3.mp3", "Untitled", "Aphex Twin", "SAW 85-92");
+        loose.track_no = None;
+        let elsewhere = track(
+            "/music/9.mp3",
+            "Roygbiv",
+            "Boards of Canada",
+            "Music Has the Right",
+        );
+
+        // Inserted out of order on purpose: the query, not the scan, orders.
+        db.upsert_scanned(folder, run, &[second, first, loose, elsewhere])
+            .await
+            .unwrap();
+
+        let album = db
+            .albums()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|album| album.title == "SAW 85-92")
+            .expect("album");
+        assert_eq!(album.track_count, 3);
+
+        let titles: Vec<String> = db
+            .album_tracks(album.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|track| track.title)
+            .collect();
+        assert_eq!(titles, vec!["Xtal", "Tha", "Untitled"]);
+
+        assert!(db.album_tracks(9_999).await.unwrap().is_empty());
     }
 
     #[tokio::test]

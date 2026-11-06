@@ -44,6 +44,8 @@ Sonora is under active development. What works right now:
   the album gain is the fallback, so loudness stays even across files.
 - An output device picker in Settings that lists the audio sinks this system
   actually has, switches the live pipeline to the chosen one and remembers it.
+- Album pages: opening a release lists its tracks in album order and plays the
+  whole album with one action.
 
 Supported platforms: **Windows**, **Linux** and **Android**. Android is a
 first-class target, but its build harness and touch layout are still being

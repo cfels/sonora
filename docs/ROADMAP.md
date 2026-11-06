@@ -50,10 +50,13 @@ Delivered:
 - Output device selection: the Settings screen opens a picker listing the
   GStreamer sinks this system actually has; the choice is stored in settings
   and switched on the live pipeline immediately, not just at the next start.
+- Album pages: clicking a release in Albums opens its tracks in disc/track
+  order (untagged files last), with one action that plays the whole album
+  and the usual per-row play, queue, rating and favourite controls.
 
 Still open:
 
-- Album and artist detail views, and artwork in the rows instead of placeholders.
+- Artist detail views, and artwork in the rows instead of placeholders.
 - Custom playlists and smart playlists with a rule editor.
 - MPRIS (Linux) and SMTC (Windows) media controls; Android uses its platform
   media session instead (see the Android track).

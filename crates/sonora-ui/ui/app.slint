@@ -33,6 +33,7 @@ export struct TrackRow {
 }
 
 export struct AlbumRow {
+    id: int,
     title: string,
     subtitle: string,
     meta: string,
@@ -392,11 +393,17 @@ component TrackList inherits ScrollView {
 component AlbumCard inherits Rectangle {
     in property <AlbumRow> album;
 
+    callback opened(int);
+
     height: 78px;
     border-radius: 8px;
     background: touch.has-hover ? Palette.panel-hover : Palette.panel;
 
-    touch := TouchArea {}
+    touch := TouchArea {
+        clicked => {
+            root.opened(root.album.id);
+        }
+    }
 
     VerticalLayout {
         padding: 14px;
@@ -980,6 +987,9 @@ export component AppWindow inherits Window {
     in property <[TrackRow]> history-tracks;
     in property <[TrackRow]> favourite-tracks;
     in property <[AlbumRow]> albums;
+    in property <[TrackRow]> album-tracks;
+    in property <string> album-title: "";
+    in property <string> album-meta: "";
     in property <[string]> folders;
 
     in property <bool> playback-available: false;
@@ -1045,6 +1055,9 @@ export component AppWindow inherits Window {
     callback pick-playback-device();
     callback device-picker-cancel();
     callback device-picker-select(string);
+    callback open-album(int, string, string);
+    callback album-track-activated(int);
+    callback play-album();
     callback onboarding-next();
     callback onboarding-back();
     callback onboarding-finish();
@@ -1056,7 +1069,7 @@ export component AppWindow inherits Window {
 
     private property <int> bitrate-shown: round(root.settings-bitrate);
     private property <int> cache-shown: round(root.settings-cache-mib);
-    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "history" ? "History" : root.section == "favourites" ? "Favourites" : root.section == "settings" ? "Settings" : "Library folders";
+    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "history" ? "History" : root.section == "favourites" ? "Favourites" : root.section == "album" ? root.album-title : root.section == "settings" ? "Settings" : "Library folders";
 
     Rectangle {
         VerticalLayout {
@@ -1820,6 +1833,82 @@ export component AppWindow inherits Window {
 
                         for item in root.albums : AlbumCard {
                             album: item;
+                            opened(id) => {
+                                root.open-album(id, item.title, item.subtitle);
+                            }
+                        }
+                    }
+                }
+
+                // --------------------------------------------------- album detail
+                if root.section == "album" : VerticalLayout {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 6px;
+
+                        HorizontalLayout {
+                            spacing: 12px;
+
+                            VerticalLayout {
+                                spacing: 4px;
+
+                                Text {
+                                    text: root.album-title;
+                                    color: Palette.text;
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    overflow: elide;
+                                }
+
+                                Text {
+                                    text: root.album-meta;
+                                    color: Palette.muted;
+                                    font-size: 12px;
+                                    overflow: elide;
+                                }
+                            }
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+
+                            ActionButton {
+                                label: "Back";
+                                clicked => {
+                                    root.section-changed("albums");
+                                }
+                            }
+
+                            ActionButton {
+                                label: "Play album";
+                                primary: true;
+                                clicked => {
+                                    root.play-album();
+                                }
+                            }
+                        }
+                    }
+
+                    TrackList {
+                        vertical-stretch: 1;
+                        rows: root.album-tracks;
+                        empty-message: "This album has no tracks Sonora can play.";
+                        activated(id) => {
+                            root.album-track-activated(id);
+                        }
+                        play-next(id) => {
+                            root.play-next-requested(id);
+                        }
+                        enqueue(id) => {
+                            root.enqueue-requested(id);
+                        }
+                        favourite(id, starred) => {
+                            root.favourite-toggled(id, starred);
+                        }
+                        rate(id, rating) => {
+                            root.rating-changed(id, rating);
                         }
                     }
                 }

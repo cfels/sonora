@@ -19,8 +19,8 @@ use std::time::Duration;
 
 use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel, Weak};
 use sonora_core::{
-    format_duration, ArtworkFormat, Event, FolderTemplate, FormatPreference, FormatTier, Settings,
-    TrackId, TrackView,
+    format_duration, AlbumId, ArtworkFormat, Event, FolderTemplate, FormatPreference, FormatTier,
+    Settings, TrackId, TrackView,
 };
 use sonora_db::{AlbumSummary, Db, HistoryEntry};
 use sonora_playback::{Engine, PlaybackState, Resolver};
@@ -52,6 +52,18 @@ struct TrackLookup {
     gains: HashMap<TrackId, Option<f32>>,
     /// The list currently on screen, in display order.
     visible: Vec<TrackId>,
+    /// The album page, when one is open. Kept apart from `visible` so opening an
+    /// album does not change how the other pages queue.
+    album: Option<AlbumPage>,
+}
+
+/// The album currently drilled into: which one, whose name heads the page, and
+/// its tracks in album order.
+#[derive(Clone)]
+struct AlbumPage {
+    id: AlbumId,
+    artist: String,
+    order: Vec<TrackId>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -190,7 +202,13 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
 
     {
         let weak = weak.clone();
+        let lookup = lookup.clone();
         ui.on_section_changed(move |section| {
+            // Leaving the album page forgets the album that was open, so later
+            // refreshes do not keep reloading a page nobody is looking at.
+            if section.as_str() != "album" {
+                lock(&lookup).album = None;
+            }
             if let Some(ui) = weak.upgrade() {
                 ui.set_section(section);
             }
@@ -650,6 +668,98 @@ fn attach_playback(
         let engine = engine.clone();
         let lookup = lookup.clone();
         let weak = weak.clone();
+        ui.on_album_track_activated(move |id| {
+            let tracks = {
+                let lookup = lock(&lookup);
+                let order = lookup.album.as_ref().map(|page| page.order.clone());
+                order.and_then(|order| queue_from(&order, id as TrackId))
+            };
+
+            let Some(tracks) = tracks else {
+                return;
+            };
+            if let Err(err) = engine.play_tracks(&tracks) {
+                log::warn!("could not start the album: {err}");
+                return;
+            }
+            refresh_playback(&weak, &engine, &lookup);
+        });
+    }
+
+    {
+        let engine = engine.clone();
+        let lookup = lookup.clone();
+        let weak = weak.clone();
+        ui.on_play_album(move || {
+            let tracks = lock(&lookup)
+                .album
+                .as_ref()
+                .map(|page| page.order.clone())
+                .unwrap_or_default();
+            if tracks.is_empty() {
+                return;
+            }
+            if let Err(err) = engine.play_tracks(&tracks) {
+                log::warn!("could not start the album: {err}");
+                return;
+            }
+            refresh_playback(&weak, &engine, &lookup);
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_open_album(move |id, title, artist| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            let title = title.to_string();
+            let artist = artist.to_string();
+            handle.spawn(async move {
+                let tracks = match db.album_tracks(id as AlbumId).await {
+                    Ok(tracks) => tracks,
+                    Err(err) => {
+                        log::error!("could not open album {id}: {err}");
+                        let _ = weak.upgrade_in_event_loop(|ui| {
+                            ui.set_status("Could not open that album.".into());
+                        });
+                        return;
+                    }
+                };
+
+                remember_tracks(&lookup, &tracks);
+                let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
+                let meta = format!(
+                    "{artist} · {} tracks · {}",
+                    tracks.len(),
+                    format_duration(total_ms)
+                );
+                let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
+                let rows = track_rows(&tracks);
+                lock(&lookup).album = Some(AlbumPage {
+                    id: id as AlbumId,
+                    artist,
+                    order,
+                });
+
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.set_album_title(title.into());
+                    ui.set_album_meta(meta.into());
+                    ui.set_album_tracks(model(rows));
+                    ui.set_section("album".into());
+                });
+            });
+        });
+    }
+
+    {
+        let engine = engine.clone();
+        let lookup = lookup.clone();
+        let weak = weak.clone();
         ui.on_play_next_requested(move |id| {
             engine.play_next(id as TrackId);
             refresh_playback(&weak, &engine, &lookup);
@@ -895,6 +1005,34 @@ fn refresh_all(
             .map(|(_, path)| path.to_string_lossy().to_string().into())
             .collect();
 
+        // A scan, a rating or a favourite can change the album that is open, so
+        // reload it in the same pass instead of leaving the page stale.
+        let open_album = lock(&lookup).album.clone();
+        let album_page = match open_album {
+            Some(page) => match ctx.db.album_tracks(page.id).await {
+                Ok(tracks) => {
+                    remember_tracks(&lookup, &tracks);
+                    let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
+                    let meta = format!(
+                        "{} · {} tracks · {}",
+                        page.artist,
+                        tracks.len(),
+                        format_duration(total_ms)
+                    );
+                    let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
+                    if let Some(open) = lock(&lookup).album.as_mut() {
+                        open.order = order;
+                    }
+                    Some((track_rows(&tracks), meta))
+                }
+                Err(err) => {
+                    log::error!("could not refresh the open album: {err}");
+                    None
+                }
+            },
+            None => None,
+        };
+
         remember(&lookup, &tracks);
 
         let recent_rows = track_rows(&recent);
@@ -917,6 +1055,10 @@ fn refresh_all(
             ui.set_history_tracks(model(history_rows));
             ui.set_albums(model(album_rows));
             ui.set_folders(model(folders));
+            if let Some((rows, meta)) = album_page {
+                ui.set_album_tracks(model(rows));
+                ui.set_album_meta(meta.into());
+            }
         });
     });
 }
@@ -1378,6 +1520,14 @@ fn queue_rows(engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) -> Vec<QueueRow
 
 /// Record the list on screen so clicking a row can queue everything below it.
 fn remember(lookup: &Arc<Mutex<TrackLookup>>, tracks: &[TrackView]) {
+    remember_tracks(lookup, tracks);
+    lock(lookup).visible = tracks.iter().map(|track| track.id).collect();
+}
+
+/// Record what playback and the queue need for tracks that are on screen,
+/// without claiming they are "the list on screen": the album page keeps its own
+/// order, and leaving it must not change how other pages queue.
+fn remember_tracks(lookup: &Arc<Mutex<TrackLookup>>, tracks: &[TrackView]) {
     let mut lookup = lock(lookup);
     for track in tracks {
         lookup.paths.insert(track.id, track.path.clone());
@@ -1389,7 +1539,6 @@ fn remember(lookup: &Arc<Mutex<TrackLookup>>, tracks: &[TrackView]) {
             track.effective_replay_gain_db().map(|db| db as f32),
         );
     }
-    lookup.visible = tracks.iter().map(|track| track.id).collect();
 }
 
 /// The ids that should be queued when `track` is double-clicked in a list:
@@ -1500,6 +1649,7 @@ fn album_rows(albums: &[AlbumSummary]) -> Vec<AlbumRow> {
                 ),
             };
             AlbumRow {
+                id: saturating_i32(album.id as u64),
                 title: album.title.clone().into(),
                 subtitle: album.album_artist.clone().into(),
                 meta: meta.into(),

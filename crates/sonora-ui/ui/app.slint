@@ -25,6 +25,11 @@ global Palette {
 export struct TrackRow {
     id: int,
     title: string,
+    artist: string,
+    artist-id: int,
+    album: string,
+    album-id: int,
+    // Combined label for places that show extra context (e.g. history time).
     subtitle: string,
     duration: string,
     favourite: bool,
@@ -36,11 +41,15 @@ export struct AlbumRow {
     id: int,
     title: string,
     subtitle: string,
+    artist-id: int,
     meta: string,
 }
 
 export struct QueueRow {
     title: string,
+    artist: string,
+    artist-id: int,
+    album-id: int,
     subtitle: string,
 }
 
@@ -198,6 +207,8 @@ component TrackRowItem inherits Rectangle {
     callback enqueue(int);
     callback favourite(int, bool);
     callback rate(int, int);
+    callback open-album(int);
+    callback open-artist(int, string);
 
     height: 56px;
     border-radius: 6px;
@@ -226,19 +237,79 @@ component TrackRowItem inherits Rectangle {
         VerticalLayout {
             spacing: 2px;
             alignment: center;
+            horizontal-stretch: 1;
 
-            Text {
-                text: root.track.title;
-                color: Palette.text;
-                font-size: 14px;
-                overflow: elide;
+            // Track title opens its release; the row behind still plays on click.
+            Rectangle {
+                height: 18px;
+                background: transparent;
+                title-text := Text {
+                    text: root.track.title;
+                    color: root.track.album-id > 0 && title-touch.has-hover ? Palette.accent : Palette.text;
+                    font-size: 14px;
+                    overflow: elide;
+                }
+                title-touch := TouchArea {
+                    clicked => {
+                        if root.track.album-id > 0 { root.open-album(root.track.album-id); }
+                        else { root.activated(root.track.id); }
+                    }
+                }
             }
-            Text {
-                text: root.track.subtitle;
-                color: Palette.muted;
-                font-size: 12px;
-                overflow: elide;
+
+            // Artist and album are separate links; history rows append their time.
+            HorizontalLayout {
+                spacing: 0px;
+                height: 16px;
+
+                Rectangle {
+                    width: artist-text.preferred-width;
+                    background: transparent;
+                    artist-text := Text {
+                        text: root.track.artist != "" ? root.track.artist : "Unknown Artist";
+                        color: root.track.artist-id > 0 && artist-touch.has-hover ? Palette.accent : Palette.muted;
+                        font-size: 12px;
+                        overflow: elide;
+                    }
+                    artist-touch := TouchArea {
+                        clicked => {
+                            if root.track.artist-id > 0 {
+                                root.open-artist(root.track.artist-id, root.track.artist);
+                            }
+                        }
+                    }
+                }
+
+                if root.track.album != "" : Text {
+                    text: " · ";
+                    color: Palette.muted;
+                    font-size: 12px;
+                }
+
+                if root.track.album != "" : Rectangle {
+                    width: album-text.preferred-width;
+                    background: transparent;
+                    album-text := Text {
+                        text: root.track.album;
+                        color: root.track.album-id > 0 && album-touch.has-hover ? Palette.accent : Palette.muted;
+                        font-size: 12px;
+                        overflow: elide;
+                    }
+                    album-touch := TouchArea {
+                        clicked => {
+                            if root.track.album-id > 0 { root.open-album(root.track.album-id); }
+                        }
+                    }
+                }
+
+                if root.track.subtitle != "" : Text {
+                    text: root.track.album != "" || root.track.artist != "" ? " · \{root.track.subtitle}" : root.track.subtitle;
+                    color: Palette.muted;
+                    font-size: 12px;
+                    overflow: elide;
+                }
             }
+
             Text {
                 text: root.track.replay_gain;
                 color: Palette.accent;
@@ -246,10 +317,6 @@ component TrackRowItem inherits Rectangle {
                 overflow: elide;
                 visible: root.track.replay_gain != "";
             }
-        }
-
-        Rectangle {
-            horizontal-stretch: 1;
         }
 
         Rectangle {
@@ -358,6 +425,8 @@ component TrackList inherits ScrollView {
     callback enqueue(int);
     callback favourite(int, bool);
     callback rate(int, int);
+    callback open-album(int);
+    callback open-artist(int, string);
 
     VerticalLayout {
         padding: 24px;
@@ -371,21 +440,13 @@ component TrackList inherits ScrollView {
             track: item;
             position: index + 1;
             show-index: true;
-            activated(id) => {
-                root.activated(id);
-            }
-            play-next(id) => {
-                root.play-next(id);
-            }
-            enqueue(id) => {
-                root.enqueue(id);
-            }
-            favourite(id, starred) => {
-                root.favourite(id, starred);
-            }
-            rate(id, rating) => {
-                root.rate(id, rating);
-            }
+            activated(id) => { root.activated(id); }
+            play-next(id) => { root.play-next(id); }
+            enqueue(id) => { root.enqueue(id); }
+            favourite(id, starred) => { root.favourite(id, starred); }
+            rate(id, rating) => { root.rate(id, rating); }
+            open-album(id) => { root.open-album(id); }
+            open-artist(id, name) => { root.open-artist(id, name); }
         }
     }
 }
@@ -394,11 +455,13 @@ component AlbumCard inherits Rectangle {
     in property <AlbumRow> album;
 
     callback opened(int);
+    callback open-artist(int, string);
 
     height: 78px;
     border-radius: 8px;
     background: touch.has-hover ? Palette.panel-hover : Palette.panel;
 
+    // Opens the release; the artist line sits on top and opens the artist.
     touch := TouchArea {
         clicked => {
             root.opened(root.album.id);
@@ -416,11 +479,24 @@ component AlbumCard inherits Rectangle {
             font-size: 14px;
             overflow: elide;
         }
-        Text {
-            text: root.album.subtitle;
-            color: Palette.muted;
-            font-size: 12px;
-            overflow: elide;
+        Rectangle {
+            height: 16px;
+            background: transparent;
+            artist-text := Text {
+                text: root.album.subtitle;
+                color: root.album.artist-id > 0 && artist-touch.has-hover ? Palette.accent : Palette.muted;
+                font-size: 12px;
+                overflow: elide;
+            }
+            artist-touch := TouchArea {
+                clicked => {
+                    if root.album.artist-id > 0 {
+                        root.open-artist(root.album.artist-id, root.album.subtitle);
+                    } else {
+                        root.opened(root.album.id);
+                    }
+                }
+            }
         }
         Text {
             text: root.album.meta;
@@ -444,6 +520,9 @@ component TransportBar inherits Rectangle {
     in property <int> current-count: 0;
     in property <int> upcoming-count: 0;
     in property <int> history-count: 0;
+    in property <int> album-id: 0;
+    in property <int> artist-id: 0;
+    in property <string> artist-name: "";
 
     callback toggle();
     callback previous();
@@ -452,6 +531,8 @@ component TransportBar inherits Rectangle {
     callback volume-changed(float);
     callback queue-toggle();
     callback lyrics-toggle();
+    callback open-album(int);
+    callback open-artist(int, string);
 
     height: 90px;
     background: Palette.sidebar;
@@ -483,18 +564,36 @@ component TransportBar inherits Rectangle {
             alignment: center;
             spacing: 2px;
 
-            Text {
-                text: root.title;
-                color: Palette.text;
-                font-size: 13px;
-                font-weight: 700;
-                overflow: elide;
+            Rectangle {
+                height: 18px;
+                background: transparent;
+                title-text := Text {
+                    text: root.title;
+                    color: root.album-id > 0 && title-touch.has-hover ? Palette.accent : Palette.text;
+                    font-size: 13px;
+                    font-weight: 700;
+                    overflow: elide;
+                }
+                title-touch := TouchArea {
+                    clicked => {
+                        if root.album-id > 0 { root.open-album(root.album-id); }
+                    }
+                }
             }
-            Text {
-                text: root.subtitle;
-                color: Palette.muted;
-                font-size: 11px;
-                overflow: elide;
+            Rectangle {
+                height: 16px;
+                background: transparent;
+                subtitle-text := Text {
+                    text: root.subtitle;
+                    color: root.artist-id > 0 && subtitle-touch.has-hover ? Palette.accent : Palette.muted;
+                    font-size: 11px;
+                    overflow: elide;
+                }
+                subtitle-touch := TouchArea {
+                    clicked => {
+                        if root.artist-id > 0 { root.open-artist(root.artist-id, root.artist-name); }
+                    }
+                }
             }
         }
 
@@ -597,6 +696,8 @@ component QueuePanel inherits Rectangle {
 
     callback remove(int);
     callback move(int, int);
+    callback open-album(int);
+    callback open-artist(int, string);
 
     width: 300px;
     background: Palette.sidebar;
@@ -613,7 +714,7 @@ component QueuePanel inherits Rectangle {
         }
 
         Text {
-            text: "Drag a row to reorder. The playing track is not in this list.";
+            text: "Drag a row to reorder. Right-click the title for its album, or the artist for their page.";
             color: Palette.muted;
             font-size: 10px;
             wrap: word-wrap;
@@ -638,6 +739,15 @@ component QueuePanel inherits Rectangle {
                 pointer-event(event) => {
                     if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
                         root.move(index, root.drag-target);
+                    }
+                    // Navigation is right-click only in the queue, so a casual
+                    // left click still means "reorder", not "leave this view".
+                    if (event.kind == PointerEventKind.up && event.button == PointerEventButton.right) {
+                        if (self.mouse-y < 23px) {
+                            if (entry.album-id > 0) { root.open-album(entry.album-id); }
+                        } else if (entry.artist-id > 0) {
+                            root.open-artist(entry.artist-id, entry.artist);
+                        }
                     }
                 }
             }
@@ -1003,6 +1113,9 @@ export component AppWindow inherits Window {
     in property <bool> playback-available: false;
     in property <string> now-playing-title: "Nothing playing";
     in property <string> now-playing-subtitle: "";
+    in property <string> now-playing-artist: "";
+    in property <int> now-playing-artist-id: 0;
+    in property <int> now-playing-album-id: 0;
     in property <bool> playing: false;
     in property <int> position-ms: 0;
     in property <int> duration-ms: 0;
@@ -1288,6 +1401,8 @@ export component AppWindow inherits Window {
                             rate(id, rating) => {
                                 root.rating-changed(id, rating);
                             }
+                            open-album(id) => { root.open-album(id); }
+                            open-artist(id, name) => { root.open-artist(id, name); }
                         }
 
                         if root.most-played-tracks.length > 0 : Text {
@@ -1316,6 +1431,8 @@ export component AppWindow inherits Window {
                             rate(id, rating) => {
                                 root.rating-changed(id, rating);
                             }
+                            open-album(id) => { root.open-album(id); }
+                            open-artist(id, name) => { root.open-artist(id, name); }
                         }
                     }
                 }
@@ -1788,6 +1905,8 @@ export component AppWindow inherits Window {
                     rate(id, rating) => {
                         root.rating-changed(id, rating);
                     }
+                    open-album(id) => { root.open-album(id); }
+                    open-artist(id, name) => { root.open-artist(id, name); }
                 }
 
                 // ------------------------------------------------------ history
@@ -1809,6 +1928,8 @@ export component AppWindow inherits Window {
                     rate(id, rating) => {
                         root.rating-changed(id, rating);
                     }
+                    open-album(id) => { root.open-album(id); }
+                    open-artist(id, name) => { root.open-artist(id, name); }
                 }
 
                 // --------------------------------------------------- favourites
@@ -1830,6 +1951,8 @@ export component AppWindow inherits Window {
                     rate(id, rating) => {
                         root.rating-changed(id, rating);
                     }
+                    open-album(id) => { root.open-album(id); }
+                    open-artist(id, name) => { root.open-artist(id, name); }
                 }
 
                 // ------------------------------------------------------- albums
@@ -1844,9 +1967,8 @@ export component AppWindow inherits Window {
 
                         for item in root.albums : AlbumCard {
                             album: item;
-                            opened(id) => {
-                                root.open-album(id);
-                            }
+                            opened(id) => { root.open-album(id); }
+                            open-artist(id, name) => { root.open-artist(id, name); }
                         }
                     }
                 }
@@ -1948,6 +2070,8 @@ export component AppWindow inherits Window {
                         rate(id, rating) => {
                             root.rating-changed(id, rating);
                         }
+                        open-album(id) => { root.open-album(id); }
+                        open-artist(id, name) => { root.open-artist(id, name); }
                     }
                 }
 
@@ -2008,9 +2132,8 @@ export component AppWindow inherits Window {
 
                         for item in root.artist-albums : AlbumCard {
                             album: item;
-                            opened(id) => {
-                                root.open-album(id);
-                            }
+                            opened(id) => { root.open-album(id); }
+                            open-artist(id, name) => { root.open-artist(id, name); }
                         }
 
                         if root.artist-tracks.length > 0 : Text {
@@ -2043,6 +2166,8 @@ export component AppWindow inherits Window {
                             rate(id, rating) => {
                                 root.rating-changed(id, rating);
                             }
+                            open-album(id) => { root.open-album(id); }
+                            open-artist(id, name) => { root.open-artist(id, name); }
                         }
                     }
                 }
@@ -2135,6 +2260,8 @@ export component AppWindow inherits Window {
                 move(from, to) => {
                     root.queue-move(from, to);
                 }
+                open-album(id) => { root.open-album(id); }
+                open-artist(id, name) => { root.open-artist(id, name); }
             }
         }
 
@@ -2174,6 +2301,8 @@ export component AppWindow inherits Window {
             lyrics-toggle() => {
                 root.lyrics-toggle();
             }
+            open-album(id) => { root.open-album(id); }
+            open-artist(id, name) => { root.open-artist(id, name); }
         }
         }
 

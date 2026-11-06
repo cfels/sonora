@@ -31,8 +31,9 @@ pub struct Db {
 }
 
 const TRACK_COLUMNS: &str = "
-    t.id, t.title, ar.name AS artist_name, al.title AS album_title,
-    aar.name AS album_artist_name, t.track_no, t.disc_no, t.year,
+    t.id, t.title, t.artist_id, ar.name AS artist_name, t.album_id,
+    al.title AS album_title, aar.name AS album_artist_name,
+    t.track_no, t.disc_no, t.year,
     t.duration_ms, t.codec, t.bitrate_kbps, t.file_size, t.added_at, t.path,
     t.replay_gain_track_db, t.replay_gain_album_db,
     t.replay_gain_track_peak, t.replay_gain_album_peak,
@@ -939,7 +940,9 @@ fn map_track(row: &SqliteRow) -> TrackView {
         id: row.get("id"),
         title: row.get("title"),
         artist: opt_string(row, "artist_name"),
+        artist_id: row.try_get::<Option<i64>, _>("artist_id").unwrap_or(None),
         album: opt_string(row, "album_title"),
+        album_id: row.try_get::<Option<i64>, _>("album_id").unwrap_or(None),
         album_artist: opt_string(row, "album_artist_name"),
         track_no: row.try_get::<Option<i64>, _>("track_no").unwrap_or(None),
         disc_no: row.try_get::<Option<i64>, _>("disc_no").unwrap_or(None),

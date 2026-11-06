@@ -42,11 +42,22 @@ pub struct AppContext {
     pub events: broadcast::Sender<Event>,
 }
 
+/// Display and navigation info cached for tracks the UI has seen, so the
+/// transport and queue can label and link them without re-querying the database.
+#[derive(Clone, Default)]
+struct TrackInfo {
+    title: String,
+    subtitle: String,
+    artist: String,
+    artist_id: i64,
+    album_id: i64,
+}
+
 /// What the UI needs to play a track and label it in the queue.
 #[derive(Default)]
 struct TrackLookup {
     paths: HashMap<TrackId, PathBuf>,
-    labels: HashMap<TrackId, (String, String)>,
+    labels: HashMap<TrackId, TrackInfo>,
     /// ReplayGain adjustments for the tracks currently on screen, in dB.
     /// A value of `None` means the track carries no ReplayGain metadata.
     gains: HashMap<TrackId, Option<f32>>,
@@ -1654,45 +1665,53 @@ fn refresh_queue_tabs(weak: &Weak<AppWindow>, engine: &Engine) {
 /// Push the queue and the now-playing labels to the window.
 fn refresh_playback(weak: &Weak<AppWindow>, engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) {
     let entries = queue_rows(engine, lookup);
-    let (title, subtitle) = now_playing(engine, lookup);
+    let now = now_playing(engine, lookup);
 
     let _ = weak.upgrade_in_event_loop(move |ui| {
         ui.set_queue_entries(model(entries));
-        ui.set_now_playing_title(title.into());
-        ui.set_now_playing_subtitle(subtitle.into());
+        ui.set_now_playing_title(now.title.into());
+        ui.set_now_playing_subtitle(now.subtitle.into());
+        ui.set_now_playing_artist(now.artist.into());
+        ui.set_now_playing_artist_id(saturating_i32(now.artist_id.max(0) as u64));
+        ui.set_now_playing_album_id(saturating_i32(now.album_id.max(0) as u64));
     });
 
     refresh_queue_tabs(weak, engine);
 }
-
-fn now_playing(engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) -> (String, String) {
+fn now_playing(engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) -> TrackInfo {
     let current = engine.current();
     let lookup = lock(lookup);
     current
         .and_then(|track| lookup.labels.get(&track).cloned())
-        .unwrap_or_else(|| ("Nothing playing".to_string(), String::new()))
+        .unwrap_or_else(|| TrackInfo {
+            title: "Nothing playing".to_string(),
+            ..TrackInfo::default()
+        })
 }
-
 fn queue_rows(engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) -> Vec<QueueRow> {
     let lookup = lock(lookup);
     engine
         .upcoming()
         .into_iter()
         .map(|track| {
-            let (title, subtitle) = lookup
+            let info = lookup
                 .labels
                 .get(&track)
                 .cloned()
-                .unwrap_or_else(|| (format!("Track {track}"), String::new()));
+                .unwrap_or_else(|| TrackInfo {
+                    title: format!("Track {track}"),
+                    ..TrackInfo::default()
+                });
             QueueRow {
-                title: title.into(),
-                subtitle: subtitle.into(),
+                title: info.title.into(),
+                artist: info.artist.clone().into(),
+                artist_id: saturating_i32(info.artist_id.max(0) as u64),
+                album_id: saturating_i32(info.album_id.max(0) as u64),
+                subtitle: info.subtitle.into(),
             }
         })
         .collect()
 }
-
-/// Record the list on screen so clicking a row can queue everything below it.
 fn remember(lookup: &Arc<Mutex<TrackLookup>>, tracks: &[TrackView]) {
     remember_tracks(lookup, tracks);
     lock(lookup).visible = tracks.iter().map(|track| track.id).collect();
@@ -1705,19 +1724,22 @@ fn remember_tracks(lookup: &Arc<Mutex<TrackLookup>>, tracks: &[TrackView]) {
     let mut lookup = lock(lookup);
     for track in tracks {
         lookup.paths.insert(track.id, track.path.clone());
-        lookup
-            .labels
-            .insert(track.id, (track.title.clone(), subtitle_for(track)));
+        lookup.labels.insert(
+            track.id,
+            TrackInfo {
+                title: track.title.clone(),
+                subtitle: subtitle_for(track),
+                artist: track.artist.clone().unwrap_or_default(),
+                artist_id: track.artist_id.unwrap_or(0),
+                album_id: track.album_id.unwrap_or(0),
+            },
+        );
         lookup.gains.insert(
             track.id,
             track.effective_replay_gain_db().map(|db| db as f32),
         );
     }
 }
-
-/// The ids that should be queued when `track` is double-clicked in a list:
-/// the track itself plus everything below it, matching how desktop players
-/// behave when you start from the middle of an album.
 fn queue_from(visible: &[TrackId], track: TrackId) -> Option<Vec<TrackId>> {
     let index = visible.iter().position(|candidate| *candidate == track)?;
     Some(visible[index..].to_vec())
@@ -1739,7 +1761,11 @@ fn track_rows(tracks: &[TrackView]) -> Vec<TrackRow> {
         .map(|track| TrackRow {
             id: saturating_i32(track.id as u64),
             title: track.title.clone().into(),
-            subtitle: subtitle_for(track).into(),
+            artist: track.artist.clone().unwrap_or_default().into(),
+            artist_id: saturating_i32(track.artist_id.unwrap_or(0).max(0) as u64),
+            album: track.album.clone().unwrap_or_default().into(),
+            album_id: saturating_i32(track.album_id.unwrap_or(0).max(0) as u64),
+            subtitle: String::new().into(),
             duration: format_duration(track.duration_ms).into(),
             favourite: track.favourite,
             rating: track.rating.clamp(0, 5) as i32,
@@ -1751,25 +1777,22 @@ fn track_rows(tracks: &[TrackView]) -> Vec<TrackRow> {
         })
         .collect()
 }
-
-/// History rows keep the track subtitle but add when it played and whether it
-/// was skipped, so the log reads like a log rather than a duplicate of Tracks.
 fn history_rows(entries: &[HistoryEntry]) -> Vec<TrackRow> {
     entries
         .iter()
         .map(|entry| {
-            let mut subtitle = format!(
-                "{} · {}",
-                subtitle_for(&entry.track),
-                relative_time(entry.played_at)
-            );
+            let mut extra = relative_time(entry.played_at);
             if entry.skipped {
-                subtitle.push_str(" · skipped");
+                extra.push_str(" · skipped");
             }
             TrackRow {
                 id: saturating_i32(entry.track.id as u64),
                 title: entry.track.title.clone().into(),
-                subtitle: subtitle.into(),
+                artist: entry.track.artist.clone().unwrap_or_default().into(),
+                artist_id: saturating_i32(entry.track.artist_id.unwrap_or(0).max(0) as u64),
+                album: entry.track.album.clone().unwrap_or_default().into(),
+                album_id: saturating_i32(entry.track.album_id.unwrap_or(0).max(0) as u64),
+                subtitle: extra.into(),
                 duration: format_duration(entry.track.duration_ms).into(),
                 favourite: entry.track.favourite,
                 rating: entry.track.rating.clamp(0, 5) as i32,
@@ -1778,8 +1801,6 @@ fn history_rows(entries: &[HistoryEntry]) -> Vec<TrackRow> {
         })
         .collect()
 }
-
-/// Coarse age label; exact clock times are noise in a play history.
 fn relative_time(played_at: i64) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1826,12 +1847,12 @@ fn album_rows(albums: &[AlbumSummary]) -> Vec<AlbumRow> {
                 id: saturating_i32(album.id as u64),
                 title: album.title.clone().into(),
                 subtitle: album.album_artist.clone().into(),
+                artist_id: saturating_i32(album.album_artist_id.max(0) as u64),
                 meta: meta.into(),
             }
         })
         .collect()
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

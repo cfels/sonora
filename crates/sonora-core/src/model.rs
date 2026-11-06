@@ -152,7 +152,11 @@ pub struct TrackView {
     pub id: TrackId,
     pub title: String,
     pub artist: Option<String>,
+    /// Row id of the track's performing artist, for navigation.
+    pub artist_id: Option<ArtistId>,
     pub album: Option<String>,
+    /// Row id of the release this track belongs to, for navigation.
+    pub album_id: Option<AlbumId>,
     pub album_artist: Option<String>,
     pub track_no: Option<i64>,
     pub disc_no: Option<i64>,

@@ -305,6 +305,10 @@ pub struct Settings {
     pub artwork: ArtworkSettings,
     /// Automatic device sync when a device is plugged in. Opt-in, desktop only.
     pub device_sync_enabled: bool,
+    /// The playback output device selected by the user, if any.
+    /// `None` means use the system default audio output. This is the sink name
+    /// passed to the GStreamer engine; it is validated when applied.
+    pub playback_device: Option<String>,
     /// Has the user completed the first-run flow?
     pub onboarding_completed: bool,
 }
@@ -320,6 +324,7 @@ impl Default for Settings {
             folder_template: FolderTemplate::default(),
             artwork: ArtworkSettings::default(),
             device_sync_enabled: false,
+            playback_device: None,
             onboarding_completed: false,
         }
     }
@@ -351,6 +356,11 @@ impl Settings {
             .cache_folder
             .take()
             .filter(|path| !path.as_os_str().is_empty());
+        // A blank device name means "system default", not a sink called "".
+        self.playback_device = self
+            .playback_device
+            .map(|device| device.trim().to_string())
+            .filter(|device| !device.is_empty());
         self
     }
 
@@ -392,7 +402,49 @@ mod tests {
             favourite: false,
             rating: 0,
             play_count: 0,
+            replay_gain_track_db: None,
+            replay_gain_album_db: None,
+            replay_gain_track_peak: None,
+            replay_gain_album_peak: None,
         }
+    }
+
+    #[test]
+    fn track_replay_gain_wins_over_album_gain() {
+        let mut view = track();
+        view.replay_gain_track_db = Some(-6.5);
+        view.replay_gain_album_db = Some(-3.0);
+        assert_eq!(view.effective_replay_gain_db(), Some(-6.5));
+
+        // Without a track gain the album value is the fallback.
+        view.replay_gain_track_db = None;
+        assert_eq!(view.effective_replay_gain_db(), Some(-3.0));
+
+        // No gain tags at all means the engine applies no adjustment.
+        view.replay_gain_album_db = None;
+        assert_eq!(view.effective_replay_gain_db(), None);
+
+        // Peaks describe the waveform, not the gain, so they never apply.
+        view.replay_gain_album_peak = Some(0.5);
+        assert_eq!(view.effective_replay_gain_db(), None);
+    }
+
+    #[test]
+    fn blank_playback_device_means_system_default() {
+        let trimmed = Settings {
+            playback_device: Some("  pulsesink  ".to_string()),
+            ..Settings::default()
+        };
+        assert_eq!(
+            trimmed.normalized().playback_device.as_deref(),
+            Some("pulsesink")
+        );
+
+        let blank = Settings {
+            playback_device: Some("   ".to_string()),
+            ..Settings::default()
+        };
+        assert_eq!(blank.normalized().playback_device, None);
     }
 
     #[test]

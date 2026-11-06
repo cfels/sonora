@@ -47,6 +47,9 @@ pub struct AppContext {
 struct TrackLookup {
     paths: HashMap<TrackId, PathBuf>,
     labels: HashMap<TrackId, (String, String)>,
+    /// ReplayGain adjustments for the tracks currently on screen, in dB.
+    /// A value of `None` means the track carries no ReplayGain metadata.
+    gains: HashMap<TrackId, Option<f32>>,
     /// The list currently on screen, in display order.
     visible: Vec<TrackId>,
 }
@@ -87,6 +90,100 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
     if let Some(engine) = engine.as_ref() {
         ui.set_volume(engine.volume() as f32);
     }
+
+    // Apply the saved playback device, if one was configured. The engine
+    // validates the sink name when set_device is called, so a stale choice
+    // just falls back to the system default instead of breaking playback.
+    {
+        let engine = engine.clone();
+        let db = ctx.db.clone();
+        handle.spawn(async move {
+            let settings = db.load_settings().await.unwrap_or_default();
+            if let (Some(engine), Some(name)) = (engine, settings.playback_device) {
+                if let Err(err) = engine.set_device(Some(&name)) {
+                    log::warn!("playback device {name} is no longer available: {err}");
+                }
+            }
+        });
+    }
+
+    // Wire the playback-device picker. Each callback takes its own clones so the
+    // three registrations never share ownership.
+    {
+        let handle = handle.clone();
+        let weak = weak.clone();
+        ui.on_pick_playback_device(move || {
+            let handle = handle.clone();
+            let weak = weak.clone();
+            handle.spawn(async move {
+                let sinks = Engine::available_sinks();
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    let devices: Vec<slint::SharedString> =
+                        sinks.into_iter().map(Into::into).collect();
+                    ui.set_devices(model(devices));
+                    ui.set_device_picker_selected(0);
+                    ui.set_device_picker_open(true);
+                });
+            });
+        });
+    }
+
+    {
+        let engine = engine.clone();
+        let db = ctx.db.clone();
+        let handle = handle.clone();
+        let weak = weak.clone();
+        ui.on_device_picker_select(move |device| {
+            let engine = engine.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let weak = weak.clone();
+            let selected = device.to_string();
+            handle.spawn(async move {
+                if selected.is_empty() {
+                    let _ = weak.upgrade_in_event_loop(|ui| {
+                        ui.set_device_picker_open(false);
+                    });
+                    return;
+                }
+                let mut settings = db.load_settings().await.unwrap_or_default();
+                settings.playback_device = Some(selected.clone());
+                if db.save_settings(&settings).await.is_err() {
+                    let _ = weak.upgrade_in_event_loop(|ui| {
+                        ui.set_status("Could not save the playback device.".into());
+                    });
+                    return;
+                }
+                // Switch the live pipeline too, so the choice takes effect now
+                // rather than only after the next restart.
+                if let Some(engine) = engine.as_ref() {
+                    if let Err(err) = engine.set_device(Some(&selected)) {
+                        log::warn!("could not switch to playback device {selected}: {err}");
+                    }
+                }
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.set_settings_device(selected.into());
+                    ui.set_device_picker_open(false);
+                    ui.set_status("Playback device updated.".into());
+                });
+            });
+        });
+    }
+
+    {
+        let handle = handle.clone();
+        let weak = weak.clone();
+        ui.on_device_picker_cancel(move || {
+            let handle = handle.clone();
+            let weak = weak.clone();
+            handle.spawn(async move {
+                let _ = weak.upgrade_in_event_loop(|ui| {
+                    ui.set_device_picker_open(false);
+                });
+            });
+        });
+    }
+
     if let Some(engine) = engine.clone() {
         wire_lyrics(&ui, weak.clone(), ctx.db.clone(), handle.clone(), engine);
     }
@@ -236,7 +333,8 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                   lastfm_key,
                   download_folder,
                   cache_folder,
-                  device_sync| {
+                  device_sync,
+                  device| {
                 let weak = weak.clone();
                 let db = db.clone();
                 handle.spawn(async move {
@@ -261,6 +359,7 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                     settings.download_folder = optional_path(download_folder.as_str());
                     settings.cache_folder = optional_path(cache_folder.as_str());
                     settings.device_sync_enabled = device_sync;
+                    settings.playback_device = optional_string(device.as_str());
                     let settings = settings.normalized();
 
                     match db.save_settings(&settings).await {
@@ -482,6 +581,15 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn optional_string(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 /// Build the playback engine, or report why the transport is unavailable.
 ///
 /// A missing GStreamer installation must not stop the library from working, so a
@@ -491,13 +599,22 @@ fn build_engine(lookup: &Arc<Mutex<TrackLookup>>) -> Option<Arc<Engine>> {
     let resolver: Resolver =
         Box::new(move |track| lock(&resolver_lookup).paths.get(&track).cloned());
 
-    match Engine::new(resolver) {
-        Ok(engine) => Some(Arc::new(engine)),
+    let engine = match Engine::new(resolver) {
+        Ok(engine) => engine,
         Err(err) => {
             log::error!("playback unavailable: {err}");
-            None
+            return None;
         }
-    }
+    };
+
+    // Wire the ReplayGain resolver so the engine can apply per-track gain,
+    // including during gapless handover (which the engine drives internally).
+    let gain_lookup = lookup.clone();
+    engine.set_gain_resolver(Box::new(move |track| {
+        lock(&gain_lookup).gains.get(&track).copied().flatten()
+    }));
+
+    Some(Arc::new(engine))
 }
 
 fn attach_playback(
@@ -1179,6 +1296,7 @@ fn apply_settings(ui: &AppWindow, settings: &Settings) {
             .into(),
     );
     ui.set_settings_device_sync(settings.device_sync_enabled);
+    ui.set_settings_device(settings.playback_device.as_deref().unwrap_or("").into());
 }
 
 /// An empty path field means "use the default location", not "a folder named
@@ -1266,6 +1384,10 @@ fn remember(lookup: &Arc<Mutex<TrackLookup>>, tracks: &[TrackView]) {
         lookup
             .labels
             .insert(track.id, (track.title.clone(), subtitle_for(track)));
+        lookup.gains.insert(
+            track.id,
+            track.effective_replay_gain_db().map(|db| db as f32),
+        );
     }
     lookup.visible = tracks.iter().map(|track| track.id).collect();
 }
@@ -1298,6 +1420,11 @@ fn track_rows(tracks: &[TrackView]) -> Vec<TrackRow> {
             duration: format_duration(track.duration_ms).into(),
             favourite: track.favourite,
             rating: track.rating.clamp(0, 5) as i32,
+            replay_gain: track
+                .effective_replay_gain_db()
+                .map(|db| format!("{:+0.1} dB", db))
+                .unwrap_or_default()
+                .into(),
         })
         .collect()
 }
@@ -1323,6 +1450,7 @@ fn history_rows(entries: &[HistoryEntry]) -> Vec<TrackRow> {
                 duration: format_duration(entry.track.duration_ms).into(),
                 favourite: entry.track.favourite,
                 rating: entry.track.rating.clamp(0, 5) as i32,
+                replay_gain: String::new().into(),
             }
         })
         .collect()

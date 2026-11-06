@@ -118,6 +118,14 @@ pub struct ScannedTrack {
     pub codec: String,
     pub file_size: u64,
     pub modified_at: i64,
+    /// ReplayGain values read from the file's tags at scan time.
+    /// Track gain wins over album gain when both are present, which is the
+    /// ReplayGain convention. Values are in decibels; peak is a linear
+    /// loudness value, not decibels.
+    pub replay_gain_track_db: Option<f32>,
+    pub replay_gain_album_db: Option<f32>,
+    pub replay_gain_track_peak: Option<f32>,
+    pub replay_gain_album_peak: Option<f32>,
 }
 
 impl ScannedTrack {
@@ -134,7 +142,12 @@ impl ScannedTrack {
 
 /// A row ready for display: names are already joined, so the UI never has to
 /// resolve ids.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A row ready for display: names are already joined, so the UI never has to
+/// resolve ids.
+///
+/// `Eq` is intentionally not derived: ReplayGain values are `f64`, which does
+/// not implement `Eq`. `PartialEq` is enough for the UI diffing we do.
+#[derive(Debug, Clone, PartialEq)]
 pub struct TrackView {
     pub id: TrackId,
     pub title: String,
@@ -156,6 +169,11 @@ pub struct TrackView {
     pub rating: i64,
     /// How many times playback has started on this track.
     pub play_count: i64,
+    /// ReplayGain values read from the file's tags at scan time.
+    pub replay_gain_track_db: Option<f64>,
+    pub replay_gain_album_db: Option<f64>,
+    pub replay_gain_track_peak: Option<f64>,
+    pub replay_gain_album_peak: Option<f64>,
 }
 
 impl TrackView {
@@ -165,6 +183,13 @@ impl TrackView {
 
     pub fn album_or_unknown(&self) -> &str {
         self.album.as_deref().unwrap_or("Unknown Album")
+    }
+
+    /// The ReplayGain track adjustment to apply when this track plays.
+    /// Track gain takes priority over album gain, matching the ReplayGain
+    /// convention; if neither is present the track plays at its stored level.
+    pub fn effective_replay_gain_db(&self) -> Option<f64> {
+        self.replay_gain_track_db.or(self.replay_gain_album_db)
     }
 }
 
@@ -176,6 +201,27 @@ pub struct LibraryStats {
     pub genres: i64,
     pub folders: i64,
     pub total_duration_ms: i64,
+}
+
+/// A playback device Sonora can send audio to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DeviceId(pub i64);
+
+impl DeviceId {
+    pub const NONE: DeviceId = DeviceId(0);
+
+    pub fn is_some(&self) -> bool {
+        self.0 != 0
+    }
+}
+
+/// A playback output device.
+#[derive(Debug, Clone)]
+pub struct Device {
+    pub id: DeviceId,
+    pub name: String,
+    pub kind: String,
+    pub is_default: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

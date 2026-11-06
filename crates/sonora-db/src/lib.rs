@@ -34,6 +34,8 @@ const TRACK_COLUMNS: &str = "
     t.id, t.title, ar.name AS artist_name, al.title AS album_title,
     aar.name AS album_artist_name, t.track_no, t.disc_no, t.year,
     t.duration_ms, t.codec, t.bitrate_kbps, t.file_size, t.added_at, t.path,
+    t.replay_gain_track_db, t.replay_gain_album_db,
+    t.replay_gain_track_peak, t.replay_gain_album_peak,
     COALESCE(act.favourite, 0) AS favourite,
     COALESCE(act.rating, 0) AS rating,
     COALESCE(act.play_count, 0) AS play_count
@@ -833,7 +835,7 @@ pub struct AlbumSummary {
 }
 
 /// One row on the History page: a play event plus the track it refers to.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HistoryEntry {
     pub id: i64,
     pub played_at: i64,
@@ -870,6 +872,18 @@ fn map_track(row: &SqliteRow) -> TrackView {
         favourite: row.get::<i64, _>("favourite") != 0,
         rating: row.get("rating"),
         play_count: row.get("play_count"),
+        replay_gain_track_db: row
+            .try_get::<Option<f64>, _>("replay_gain_track_db")
+            .unwrap_or(None),
+        replay_gain_album_db: row
+            .try_get::<Option<f64>, _>("replay_gain_album_db")
+            .unwrap_or(None),
+        replay_gain_track_peak: row
+            .try_get::<Option<f64>, _>("replay_gain_track_peak")
+            .unwrap_or(None),
+        replay_gain_album_peak: row
+            .try_get::<Option<f64>, _>("replay_gain_album_peak")
+            .unwrap_or(None),
     }
 }
 
@@ -982,8 +996,11 @@ async fn insert_track(
         "INSERT INTO tracks
             (path, folder_id, title, artist_id, album_id, track_no, disc_no, year,
              duration_ms, bitrate_kbps, sample_rate, channels, codec, file_size,
-             added_at, modified_at, last_seen_scan)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+             added_at, modified_at, last_seen_scan,
+             replay_gain_track_db, replay_gain_album_db,
+             replay_gain_track_peak, replay_gain_album_peak)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                 ?18, ?19, ?20, ?21)",
     )
     .bind(track.path.to_string_lossy().to_string())
     .bind(folder_id)
@@ -1002,6 +1019,10 @@ async fn insert_track(
     .bind(now())
     .bind(track.modified_at)
     .bind(run_id)
+    .bind(track.replay_gain_track_db)
+    .bind(track.replay_gain_album_db)
+    .bind(track.replay_gain_track_peak)
+    .bind(track.replay_gain_album_peak)
     .execute(&mut *conn)
     .await
     .db()?;
@@ -1022,7 +1043,9 @@ async fn update_track(
             folder_id = ?2, title = ?3, artist_id = ?4, album_id = ?5, track_no = ?6,
             disc_no = ?7, year = ?8, duration_ms = ?9, bitrate_kbps = ?10,
             sample_rate = ?11, channels = ?12, codec = ?13, file_size = ?14,
-            modified_at = ?15, last_seen_scan = ?16
+            modified_at = ?15, last_seen_scan = ?16,
+            replay_gain_track_db = ?17, replay_gain_album_db = ?18,
+            replay_gain_track_peak = ?19, replay_gain_album_peak = ?20
          WHERE id = ?1",
     )
     .bind(id)
@@ -1041,6 +1064,10 @@ async fn update_track(
     .bind(track.file_size as i64)
     .bind(track.modified_at)
     .bind(run_id)
+    .bind(track.replay_gain_track_db)
+    .bind(track.replay_gain_album_db)
+    .bind(track.replay_gain_track_peak)
+    .bind(track.replay_gain_album_peak)
     .execute(&mut *conn)
     .await
     .db()?;
@@ -1069,6 +1096,10 @@ mod tests {
             codec: "MP3".to_string(),
             file_size: 1024,
             modified_at: 1_700_000_000,
+            replay_gain_track_db: None,
+            replay_gain_album_db: None,
+            replay_gain_track_peak: None,
+            replay_gain_album_peak: None,
         }
     }
 
@@ -1102,6 +1133,29 @@ mod tests {
         assert_eq!(stats.artists, 1);
         assert_eq!(stats.genres, 1);
         assert_eq!(stats.total_duration_ms, 360_000);
+    }
+
+    #[tokio::test]
+    async fn replay_gain_survives_a_round_trip() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let mut item = track("/music/g.mp3", "Xtal", "Aphex Twin", "SAW");
+        item.replay_gain_track_db = Some(-6.25);
+        item.replay_gain_album_db = Some(-4.5);
+        item.replay_gain_track_peak = Some(0.875);
+        item.replay_gain_album_peak = Some(0.75);
+        db.upsert_scanned(folder, run, std::slice::from_ref(&item))
+            .await
+            .unwrap();
+
+        let stored = &db.list_tracks(10, 0).await.unwrap()[0];
+        assert_eq!(stored.replay_gain_track_db, Some(-6.25));
+        assert_eq!(stored.replay_gain_album_db, Some(-4.5));
+        assert_eq!(stored.replay_gain_track_peak, Some(0.875));
+        assert_eq!(stored.replay_gain_album_peak, Some(0.75));
+        // The engine applies the track gain when a file carries both values.
+        assert_eq!(stored.effective_replay_gain_db(), Some(-6.25));
     }
 
     #[tokio::test]

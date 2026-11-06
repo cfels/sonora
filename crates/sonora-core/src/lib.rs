@@ -15,8 +15,8 @@ pub mod util;
 pub use error::{Error, Result};
 pub use events::{Event, ScanProgress};
 pub use model::{
-    is_supported_audio, AlbumId, ArtistId, AudioFormat, FolderId, LibraryStats, ScanError,
-    ScanReport, ScannedTrack, TrackId, TrackView,
+    is_supported_audio, AlbumId, ArtistId, AudioFormat, Device, DeviceId, FolderId, LibraryStats,
+    ScanError, ScanReport, ScannedTrack, TrackId, TrackView,
 };
 pub use queue::{Queue, QueueSnapshot, RepeatMode};
 pub use settings::{

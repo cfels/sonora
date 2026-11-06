@@ -63,6 +63,18 @@ pub fn extract(path: &Path) -> Result<ScannedTrack> {
         .map(|value| split_genres(&value))
         .unwrap_or_default();
 
+    // ReplayGain. These are stored as text like "+2.3 dB" or "2.3 dB".
+    // A missing or unparseable value leaves the field at None; ReplayGain is
+    // never a scan-blocking problem.
+    let replay_gain_track_db =
+        parse_replay_gain_value(tag.and_then(|t| t.get_string(ItemKey::ReplayGainTrackGain)));
+    let replay_gain_album_db =
+        parse_replay_gain_value(tag.and_then(|t| t.get_string(ItemKey::ReplayGainAlbumGain)));
+    let replay_gain_track_peak =
+        parse_replay_gain_value(tag.and_then(|t| t.get_string(ItemKey::ReplayGainTrackPeak)));
+    let replay_gain_album_peak =
+        parse_replay_gain_value(tag.and_then(|t| t.get_string(ItemKey::ReplayGainAlbumPeak)));
+
     if title
         .as_deref()
         .map(str::trim)
@@ -96,7 +108,27 @@ pub fn extract(path: &Path) -> Result<ScannedTrack> {
         codec,
         file_size: metadata.len(),
         modified_at,
+        replay_gain_track_db,
+        replay_gain_album_db,
+        replay_gain_track_peak,
+        replay_gain_album_peak,
     })
+}
+
+/// Parse a ReplayGain tag value.
+///
+/// A gain is stored as text with a unit, `"+2.3 dB"` or `"-1.0dB"`; a peak is a
+/// plain linear amplitude such as `"0.988553"`. A missing, empty or non-numeric
+/// value yields `None`, because unreadable ReplayGain must never fail a scan.
+fn parse_replay_gain_value(value: Option<&str>) -> Option<f32> {
+    // Drop a trailing unit suffix such as "dB" in any case. Stripping by
+    // character rather than by byte index keeps a malformed non-ASCII tag from
+    // panicking on a slice boundary.
+    let raw = value?
+        .trim()
+        .trim_end_matches(|character: char| character.is_ascii_alphabetic())
+        .trim();
+    raw.parse::<f32>().ok()
 }
 
 /// Prefer our own format label (stable, user-facing) over lofty's debug name.
@@ -120,7 +152,26 @@ pub fn split_genres(value: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::split_genres;
+    use super::{parse_replay_gain_value, split_genres};
+
+    #[test]
+    fn parses_replay_gain_decibels() {
+        assert_eq!(parse_replay_gain_value(Some("+2.3 dB")), Some(2.3));
+        assert_eq!(parse_replay_gain_value(Some("-1.0DB")), Some(-1.0));
+        assert_eq!(parse_replay_gain_value(Some(" 0.5 ")), Some(0.5));
+        assert_eq!(parse_replay_gain_value(Some("0.0")), Some(0.0));
+    }
+
+    #[test]
+    fn rejects_replay_gain_that_is_not_a_number() {
+        assert_eq!(parse_replay_gain_value(Some("")), None);
+        assert_eq!(parse_replay_gain_value(Some("   ")), None);
+        assert_eq!(parse_replay_gain_value(Some("dB")), None);
+        assert_eq!(parse_replay_gain_value(Some("loud")), None);
+        assert_eq!(parse_replay_gain_value(None), None);
+        // A malformed non-ASCII value must not panic on a slice boundary.
+        assert_eq!(parse_replay_gain_value(Some("1.0€")), None);
+    }
 
     #[test]
     fn splits_multi_value_genres() {

@@ -43,10 +43,16 @@ Delivered:
 - Play activity: history, play and skip counts, star ratings and favourites,
   written by the UI, shown on Home (Most played), History and Favourites, and
   readable headlessly with `sonora --history`.
+- ReplayGain from tags: the scanner reads track and album gain and peak
+  values, the database persists them, and the engine applies the track gain
+  (album gain as the fallback) as a linear volume factor so loudness is even
+  across files. Tracks carrying a gain show it as a badge in the list.
+- Output device selection: the Settings screen opens a picker listing the
+  GStreamer sinks this system actually has; the choice is stored in settings
+  and switched on the live pipeline immediately, not just at the next start.
 
 Still open:
 
-- Device selection and ReplayGain from tags.
 - Album and artist detail views, and artwork in the rows instead of placeholders.
 - Custom playlists and smart playlists with a rule editor.
 - MPRIS (Linux) and SMTC (Windows) media controls; Android uses its platform

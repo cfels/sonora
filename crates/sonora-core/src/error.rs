@@ -28,6 +28,9 @@ pub enum Error {
     #[error("playback error: {0}")]
     Playback(String),
 
+    #[error("device error: {0}")]
+    Device(String),
+
     #[error("{0}")]
     Other(String),
 }
@@ -53,6 +56,10 @@ impl Error {
 
     pub fn playback(message: impl Into<String>) -> Self {
         Error::Playback(message.into())
+    }
+
+    pub fn device(message: impl Into<String>) -> Self {
+        Error::Device(message.into())
     }
 }
 

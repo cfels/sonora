@@ -21,22 +21,38 @@ no jewscript or electroon
 
 ## status
 
-Sonora is under active development. What works right now (phase 1):
+Sonora is under active development. What works right now:
 
 - Recursive library scanning of MP3, FLAC, M4A/AAC, OGG, Opus, WAV, AIFF,
   WavPack, Monkey's Audio, Musepack and WMA files.
 - Tag extraction via `lofty`, with file-name fallback only when tags are absent.
 - Incremental rescans: unchanged files are skipped, deleted files are pruned.
 - SQLite library with FTS5 search, album/artist aggregation and library stats.
-- Slint shell: Home, Tracks, Albums and Library folders.
+- Slint shell: Home, Tracks, Albums, Library folders, History and Favourites.
+- GStreamer playback (play/pause, previous/next, seek, volume) with gapless
+  handover and the full Apple-Music-style queue (shuffle upcoming, play next,
+  add to queue, drag reorder, repeat).
+- A persisted playback queue that survives restarts.
+- Play activity written back to the library: plays and skips, play history,
+  per-track play counts, ratings and favourites; Home gains a Most played shelf.
+- Settings for format preference and bitrate ceiling, cache budget, artwork
+  format/quality, folder template, Last.fm key, plus download and cache folder
+  pickers and the device-sync opt-in.
+- Three live queue-tab indicators next to the transport's Queue button:
+  Current / Upcoming / History, each with its dot, label and track count.
+- ReplayGain read from tags at scan time: the track gain scales playback and
+  the album gain is the fallback, so loudness stays even across files.
+- An output device picker in Settings that lists the audio sinks this system
+  actually has, switches the live pipeline to the chosen one and remembers it.
 
 Supported platforms: **Windows**, **Linux** and **Android**. Android is a
 first-class target, but its build harness and touch layout are still being
 built, so today only the desktop targets produce a runnable binary; the plan and
 acceptance criteria are in the [Android track](docs/ROADMAP.md#android-track-parallel-from-phase-2).
 
-Playback, artwork management, Last.fm, Discord, lyrics, device sync and
-downloads are planned and documented in [docs/ROADMAP.md](docs/ROADMAP.md).
+Album and artist detail views with artwork in the rows, custom and smart
+playlists, MPRIS/SMTC media controls, Discord Rich Presence, device sync and
+downloads are still ahead; the full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## how 2 build
 

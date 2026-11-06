@@ -29,6 +29,7 @@ export struct TrackRow {
     duration: string,
     favourite: bool,
     rating: int,
+    replay_gain: string,
 }
 
 export struct AlbumRow {
@@ -236,6 +237,13 @@ component TrackRowItem inherits Rectangle {
                 color: Palette.muted;
                 font-size: 12px;
                 overflow: elide;
+            }
+            Text {
+                text: root.track.replay_gain;
+                color: Palette.accent;
+                font-size: 11px;
+                overflow: elide;
+                visible: root.track.replay_gain != "";
             }
         }
 
@@ -1008,6 +1016,10 @@ export component AppWindow inherits Window {
     in-out property <string> settings-download-folder: "";
     in-out property <string> settings-cache-folder: "";
     in-out property <bool> settings-device-sync: false;
+    in-out property <string> settings-device: "";
+    in-out property <bool> device-picker-open: false;
+    in property <[string]> devices: [];
+    in-out property <int> device-picker-selected: 0;
 
     callback section-changed(string);
     callback search-changed(string);
@@ -1027,9 +1039,12 @@ export component AppWindow inherits Window {
     callback volume-changed(float);
     callback queue-move(int, int);
     callback queue-remove(int);
-    callback save-settings(string, int, int, string, int, string, string, string, string, bool);
+    callback save-settings(string, int, int, string, int, string, string, string, string, bool, string);
     callback pick-settings-folder(string);
     callback clear-settings-folder(string);
+    callback pick-playback-device();
+    callback device-picker-cancel();
+    callback device-picker-select(string);
     callback onboarding-next();
     callback onboarding-back();
     callback onboarding-finish();
@@ -1604,12 +1619,34 @@ export component AppWindow inherits Window {
                             }
                         }
 
+                        Text {
+                            text: "Playback device";
+                            color: Palette.text;
+                            font-size: 14px;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: root.settings-device == "" ? "System default" : root.settings-device;
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            ActionButton {
+                                label: "Change";
+                                clicked => {
+                                    root.pick-playback-device();
+                                }
+                            }
+                        }
+
                         HorizontalLayout {
                             spacing: 14px;
                             ActionButton {
                                 label: "Save settings";
                                 clicked => {
-                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key, root.settings-download-folder, root.settings-cache-folder, root.settings-device-sync);
+                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key, root.settings-download-folder, root.settings-cache-folder, root.settings-device-sync, root.settings-device);
                                 }
                             }
                             ActionButton {
@@ -1624,6 +1661,85 @@ export component AppWindow inherits Window {
                                 color: Palette.muted;
                                 font-size: 12px;
                                 vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                // ------------------------------------------------------- playback device picker
+                if root.device-picker-open : Rectangle {
+                    width: parent.width;
+                    height: parent.height;
+                    background: Palette.sidebar;
+
+                    Rectangle {
+                        width: 340px;
+                        height: 340px;
+                        background: Palette.panel;
+                        border-radius: 10px;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+
+                        VerticalLayout {
+                            padding: 14px;
+                            spacing: 12px;
+
+                            Text {
+                                text: "Playback device";
+                                color: Palette.text;
+                                font-size: 14px;
+                                font-weight: 700;
+                            }
+
+                            ScrollView {
+                                height: 220px;
+
+                                VerticalLayout {
+                                    spacing: 4px;
+
+                                    for device[index] in root.devices : Rectangle {
+                                        height: 40px;
+                                        horizontal-stretch: 1;
+                                        background: root.device-picker-selected == index ? Palette.accent-soft : transparent;
+                                        border-radius: 6px;
+
+                                        Text {
+                                            text: device;
+                                            color: root.device-picker-selected == index ? Palette.accent : Palette.text;
+                                            font-size: 13px;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+
+                                        touch := TouchArea {
+                                            clicked => {
+                                                root.device-picker-selected = index;
+                                                root.device-picker-select(device);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 0px;
+
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                }
+
+                                ActionButton {
+                                    label: "Cancel";
+                                    clicked => {
+                                        root.device-picker-open = false;
+                                        root.device-picker-cancel();
+                                    }
+                                }
+
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                }
                             }
                         }
                     }

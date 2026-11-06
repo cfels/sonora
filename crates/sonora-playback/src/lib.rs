@@ -42,8 +42,20 @@ impl PlaybackState {
 struct Shared {
     queue: Queue,
     resolve: Resolver,
+    /// Resolves a track id to a ReplayGain adjustment in decibels, if the
+    /// track carries one. `None` means no adjustment. Defaults to a no-op
+    /// resolver so existing callers (including tests) do not need to change.
+    gain_resolver: GainResolver,
+    /// The ReplayGain being applied to the currently playing track, in dB.
+    current_gain_db: f32,
+    /// The audio sink currently set on the pipeline, if any.
+    current_sink: Option<String>,
     current_path: Option<PathBuf>,
 }
+
+/// Turns a track id into a ReplayGain adjustment in decibels, if the track
+/// carries one.
+pub type GainResolver = Box<dyn Fn(TrackId) -> Option<f32> + Send + Sync>;
 
 pub struct Engine {
     pipeline: gst::Element,
@@ -87,6 +99,9 @@ impl Engine {
         let shared = Arc::new(Mutex::new(Shared {
             queue: Queue::new(),
             resolve,
+            gain_resolver: Box::new(|_| None),
+            current_gain_db: 0.0,
+            current_sink: None,
             current_path: None,
         }));
 
@@ -262,7 +277,9 @@ impl Engine {
     pub fn set_volume(&self, volume: f64) {
         let volume = volume.clamp(0.0, 1.0);
         self.volume.store(volume.to_bits(), Ordering::SeqCst);
-        self.pipeline.set_property("volume", volume);
+        // Re-apply the current track's ReplayGain on top of the new user volume.
+        let gain = lock(&self.shared).current_gain_db;
+        self.apply_gain_if_playing(gain);
     }
 
     pub fn volume(&self) -> f64 {
@@ -358,6 +375,115 @@ impl Engine {
         shared.queue = sonora_core::Queue::from_snapshot(snapshot);
     }
 
+    // ----------------------------------------------------------------- device
+
+    /// Set the audio output device for playback.
+    ///
+    /// `Some(name)` validates that GStreamer has a sink element factory with
+    /// that name and switches the pipeline to it. `None` reverts to the system
+    /// default sink when `autoaudiosink` is available; otherwise the current
+    /// sink is left in place (a restart picks up the system default).
+    /// Switching devices may cause a brief silence while the new sink is
+    /// connected; that is a GStreamer behaviour, not a bug.
+    pub fn set_device(&self, name: Option<&str>) -> Result<()> {
+        let sink_element = match name {
+            Some(sink_name) => {
+                // Validate that the sink element factory exists before trying to
+                // create it.
+                if gst::ElementFactory::find(sink_name).is_none() {
+                    return Err(Error::device(format!(
+                        "no audio output named {sink_name} is available on this system"
+                    )));
+                }
+                gst::ElementFactory::make(sink_name)
+                    .build()
+                    .map_err(|err| {
+                        Error::device(format!(
+                            "could not create the audio output {sink_name}: {err}"
+                        ))
+                    })?
+            }
+            None => {
+                // Reverting to the system default: use autoaudiosink when it
+                // exists; on systems (or test environments) without it, leave the
+                // current sink in place so playback is not interrupted.
+                match gst::ElementFactory::find("autoaudiosink") {
+                    Some(_) => {
+                        gst::ElementFactory::make("autoaudiosink")
+                            .build()
+                            .map_err(|err| {
+                                Error::device(format!(
+                                    "could not create the default audio output: {err}"
+                                ))
+                            })?
+                    }
+                    None => return Ok(()),
+                }
+            }
+        };
+        // set_property on a GStreamer element returns () and logs failures
+        // internally, so the builder validation above is the main guard.
+        self.pipeline.set_property("audio-sink", &sink_element);
+        lock(&self.shared).current_sink = name.map(String::from);
+        Ok(())
+    }
+
+    /// The audio output device currently in use, if one was selected.
+    pub fn device(&self) -> Option<String> {
+        lock(&self.shared).current_sink.clone()
+    }
+
+    /// Audio output sinks that can be offered in a device picker.
+    ///
+    /// Candidates are filtered against the element factories GStreamer actually
+    /// has, so a picker never lists a device that would fail to open. The system
+    /// default (`autoaudiosink`) is listed first when available; if nothing
+    /// matches, it is still returned so the picker always has an entry and the
+    /// device can be reset to the default.
+    pub fn available_sinks() -> Vec<String> {
+        const CANDIDATES: &[&str] = &[
+            "autoaudiosink",
+            "pulsesink",
+            "pipewiresink",
+            "alsasink",
+            "oss4sink",
+            "osssink",
+            "jackaudiosink",
+            "directsoundsink",
+            "wasapisink",
+            "coreaudiosink",
+        ];
+        let mut sinks: Vec<String> = CANDIDATES
+            .iter()
+            .filter(|name| gst::ElementFactory::find(name).is_some())
+            .map(|name| (*name).to_string())
+            .collect();
+        if sinks.is_empty() {
+            sinks.push("autoaudiosink".to_string());
+        }
+        sinks
+    }
+
+    // ------------------------------------------------------------ replaygain
+
+    /// Supply a resolver that turns a track id into its ReplayGain adjustment.
+    /// Called once, after the engine is built, with a resolver that reads from
+    /// the library's current track data. Defaults to a no-op until then.
+    pub fn set_gain_resolver(&self, resolver: GainResolver) {
+        lock(&self.shared).gain_resolver = resolver;
+    }
+
+    /// The ReplayGain adjustment currently applied to the playing track, in dB.
+    /// `None` when no track is playing or the track carries no gain metadata.
+    pub fn track_gain(&self) -> Option<f32> {
+        let gain = lock(&self.shared).current_gain_db;
+        if gain == 0.0 {
+            None
+        } else {
+            Some(gain)
+        }
+    }
+
     // ---------------------------------------------------------------- private
 
     fn start_track(&self, track: TrackId) -> Result<()> {
@@ -375,7 +501,20 @@ impl Engine {
         })?;
 
         self.pipeline.set_property("uri", Some(uri.as_str()));
-        self.set_state(PlaybackState::Playing)
+        self.set_state(PlaybackState::Playing)?;
+
+        // Apply this track's ReplayGain, if it carries one, on top of the
+        // user's volume. Gapless handover uses this path too, so the gain is
+        // applied for every track the engine starts internally.
+        {
+            let gain = {
+                let shared = lock(&self.shared);
+                (shared.gain_resolver)(track)
+            };
+            self.apply_gain(gain);
+        }
+
+        Ok(())
     }
 
     fn set_state(&self, state: PlaybackState) -> Result<()> {
@@ -392,6 +531,33 @@ impl Engine {
             self.finished.store(false, Ordering::SeqCst);
         }
         Ok(())
+    }
+
+    /// Apply a ReplayGain adjustment to the mixer volume, on top of the user's
+    /// volume setting. A gain of `None` or `0.0` restores the user volume.
+    fn apply_gain(&self, gain_db: Option<f32>) {
+        let user_volume = f64::from_bits(self.volume.load(Ordering::SeqCst));
+        let effective = match gain_db {
+            Some(db) if db.abs() > f32::EPSILON => {
+                // 10^(db/20) converts decibels to a linear multiplier.
+                let multiplier = (db as f64 / 20.0 * std::f64::consts::LN_10).exp();
+                (user_volume * multiplier).clamp(0.0, 1.0)
+            }
+            _ => user_volume,
+        };
+        lock(&self.shared).current_gain_db = gain_db.unwrap_or(0.0);
+        self.pipeline.set_property("volume", effective);
+    }
+
+    /// Re-apply the stored gain after the user volume changed (slider move).
+    fn apply_gain_if_playing(&self, gain_db: f32) {
+        // Only touch the pipeline volume when there is an active gain to apply.
+        if gain_db.abs() > f32::EPSILON {
+            let user_volume = f64::from_bits(self.volume.load(Ordering::SeqCst));
+            let effective = (user_volume * (gain_db as f64 / 20.0 * std::f64::consts::LN_10).exp())
+                .clamp(0.0, 1.0);
+            self.pipeline.set_property("volume", effective);
+        }
     }
 }
 
@@ -576,6 +742,20 @@ mod tests {
         assert!(engine.volume().abs() < f64::EPSILON);
         engine.set_volume(0.4);
         assert!((engine.volume() - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn replay_gain_resolver_drives_the_applied_gain() {
+        let (_directory, _files, engine) = fixtures(0.5);
+        engine.set_gain_resolver(Box::new(|_| Some(-6.0)));
+        engine.play_tracks(&[1]).expect("play");
+        assert_eq!(engine.track_gain(), Some(-6.0));
+
+        // A track without gain restores the user's volume, so the adjustment
+        // must not linger from the track that played before it.
+        engine.set_gain_resolver(Box::new(|_| None));
+        engine.play_tracks(&[2]).expect("play");
+        assert_eq!(engine.track_gain(), None);
     }
 
     #[test]

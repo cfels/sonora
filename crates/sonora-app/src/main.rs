@@ -24,6 +24,7 @@ USAGE:
     sonora --lyrics <query>     Fetch and store lyrics for the best search match
     sonora --cover <query>      Fetch and store cover art for the best search match
     sonora --cache              Show the track cache and enforce its budget
+    sonora --history            Show the most recent plays, newest first
     sonora --where              Print the library database path
     sonora --settings           Print the current settings as JSON
     sonora --version            Print the version
@@ -77,6 +78,9 @@ fn main() -> anyhow::Result<()> {
         }
         [flag] if flag == "--cache" => {
             show_cache(&runtime, &db, &db_path)?;
+        }
+        [flag] if flag == "--history" => {
+            show_history(&runtime, &db)?;
         }
         [flag] if flag == "--help" || flag == "-h" => {
             println!("{USAGE}");
@@ -319,6 +323,31 @@ fn describe_free_space(bytes: Option<u64>) -> String {
         Some(bytes) => format!("{} MiB available", bytes / 1024 / 1024),
         None => "unknown on this platform".to_string(),
     }
+}
+
+/// Print the most recent plays, newest first.
+///
+/// The UI writes this table, so the command is a headless way to check that
+/// activity is being recorded, and it works on a server with no audio device.
+fn show_history(runtime: &tokio::runtime::Runtime, db: &Db) -> anyhow::Result<()> {
+    const LIMIT: i64 = 20;
+    let entries = runtime.block_on(db.history(LIMIT, 0))?;
+    if entries.is_empty() {
+        println!("No plays recorded yet.");
+        return Ok(());
+    }
+    for entry in entries {
+        let when = chrono::DateTime::from_timestamp(entry.played_at, 0)
+            .map(|time| {
+                time.with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d %H:%M")
+                    .to_string()
+            })
+            .unwrap_or_else(|| entry.played_at.to_string());
+        let skipped = if entry.skipped { " (skipped)" } else { "" };
+        println!("{when}  {}{skipped}", label(&entry.track));
+    }
+    Ok(())
 }
 
 fn database_path() -> anyhow::Result<PathBuf> {

@@ -27,6 +27,8 @@ export struct TrackRow {
     title: string,
     subtitle: string,
     duration: string,
+    favourite: bool,
+    rating: int,
 }
 
 export struct AlbumRow {
@@ -192,6 +194,8 @@ component TrackRowItem inherits Rectangle {
     callback activated(int);
     callback play-next(int);
     callback enqueue(int);
+    callback favourite(int, bool);
+    callback rate(int, int);
 
     height: 56px;
     border-radius: 6px;
@@ -281,6 +285,48 @@ component TrackRowItem inherits Rectangle {
             }
         }
 
+        Rectangle {
+            width: 28px;
+            height: 24px;
+            border-radius: 6px;
+            background: favourite-touch.has-hover ? Palette.accent-soft : transparent;
+
+            Text {
+                text: root.track.favourite ? "♥" : "♡";
+                color: root.track.favourite ? Palette.accent : Palette.muted;
+                font-size: 14px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            favourite-touch := TouchArea {
+                clicked => {
+                    root.favourite(root.track.id, !root.track.favourite);
+                }
+            }
+        }
+
+        Rectangle {
+            width: 44px;
+            height: 24px;
+            border-radius: 6px;
+            background: rating-touch.has-hover ? Palette.accent-soft : transparent;
+
+            Text {
+                text: root.track.rating > 0 ? "★ \{root.track.rating}" : "☆";
+                color: root.track.rating > 0 ? Palette.accent : Palette.muted;
+                font-size: 11px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            rating-touch := TouchArea {
+                clicked => {
+                    root.rate(root.track.id, root.track.rating);
+                }
+            }
+        }
+
         Text {
             text: root.track.duration;
             width: 52px;
@@ -288,6 +334,49 @@ component TrackRowItem inherits Rectangle {
             font-size: 12px;
             horizontal-alignment: right;
             vertical-alignment: center;
+        }
+    }
+}
+
+// A whole page of tracks. Every list (Tracks, History, Favourites) behaves the
+// same way, so the row wiring lives in one place instead of three copies.
+component TrackList inherits ScrollView {
+    in property <[TrackRow]> rows;
+    in property <string> empty-message: "";
+
+    callback activated(int);
+    callback play-next(int);
+    callback enqueue(int);
+    callback favourite(int, bool);
+    callback rate(int, int);
+
+    VerticalLayout {
+        padding: 24px;
+        spacing: 2px;
+
+        if root.rows.length == 0 : EmptyState {
+            message: root.empty-message;
+        }
+
+        for item[index] in root.rows : TrackRowItem {
+            track: item;
+            position: index + 1;
+            show-index: true;
+            activated(id) => {
+                root.activated(id);
+            }
+            play-next(id) => {
+                root.play-next(id);
+            }
+            enqueue(id) => {
+                root.enqueue(id);
+            }
+            favourite(id, starred) => {
+                root.favourite(id, starred);
+            }
+            rate(id, rating) => {
+                root.rate(id, rating);
+            }
         }
     }
 }
@@ -482,84 +571,6 @@ component TransportBar inherits Rectangle {
             primary: false;
             clicked => {
                 root.queue-toggle();
-            }
-        }
-
-        // inline queue tab indicators using only built-in elements
-        HorizontalLayout {
-            spacing: 4px;
-            alignment: center;
-
-            current-dot := Rectangle {
-                width: 8px;
-                height: 8px;
-                border-radius: 4px;
-                background: #f0b13c;
-            }
-
-            current-label := Text {
-                text: "Current";
-                color: Palette.muted;
-                font-size: 11px;
-                vertical-alignment: center;
-            }
-
-            current-count-text := Text {
-                text: "\{root.current-count}";
-                color: Palette.text;
-                font-size: 11px;
-                font-weight: 600;
-                width: 20px;
-                horizontal-alignment: right;
-                vertical-alignment: center;
-            }
-
-            upcoming-dot := Rectangle {
-                width: 8px;
-                height: 8px;
-                border-radius: 4px;
-                background: #4a9eff;
-            }
-
-            upcoming-label := Text {
-                text: "Upcoming";
-                color: Palette.muted;
-                font-size: 11px;
-                vertical-alignment: center;
-            }
-
-            upcoming-count-text := Text {
-                text: "\{root.upcoming-count}";
-                color: Palette.text;
-                font-size: 11px;
-                font-weight: 600;
-                width: 20px;
-                horizontal-alignment: right;
-                vertical-alignment: center;
-            }
-
-            history-dot := Rectangle {
-                width: 8px;
-                height: 8px;
-                border-radius: 4px;
-                background: #6b7280;
-            }
-
-            history-label := Text {
-                text: "History";
-                color: Palette.muted;
-                font-size: 11px;
-                vertical-alignment: center;
-            }
-
-            history-count-text := Text {
-                text: "\{root.history-count}";
-                color: Palette.text;
-                font-size: 11px;
-                font-weight: 600;
-                width: 20px;
-                horizontal-alignment: right;
-                vertical-alignment: center;
             }
         }
     }
@@ -957,6 +968,9 @@ export component AppWindow inherits Window {
     in property <string> library-duration: "0:00";
     in property <[TrackRow]> recent-tracks;
     in property <[TrackRow]> all-tracks;
+    in property <[TrackRow]> most-played-tracks;
+    in property <[TrackRow]> history-tracks;
+    in property <[TrackRow]> favourite-tracks;
     in property <[AlbumRow]> albums;
     in property <[string]> folders;
 
@@ -970,9 +984,6 @@ export component AppWindow inherits Window {
     in property <string> duration-label: "0:00";
     in property <float> volume: 1.0;
     in property <[QueueRow]> queue-entries;
-    in property <int> current-count: 0;
-    in property <int> upcoming-count: 0;
-    in property <int> history-count: 0;
     in-out property <bool> queue-open: false;
     in-out property <bool> onboarding-open: false;
     in-out property <int> onboarding-step: 0;
@@ -980,6 +991,9 @@ export component AppWindow inherits Window {
     in property <string> lyrics-text: "";
     in property <string> lyrics-status: "";
     in property <image> artwork;
+    in property <int> current-count: 0;
+    in property <int> upcoming-count: 0;
+    in property <int> history-count: 0;
 
     in-out property <string> settings-format-tier: "lossless";
     // float, because these two drive Sliders through a two-way binding: an int
@@ -991,6 +1005,9 @@ export component AppWindow inherits Window {
     in-out property <int> settings-artwork-quality: 90;
     in-out property <string> settings-folder-template: "{album_artist}/{album}/{track_no:02} {title}";
     in-out property <string> settings-lastfm-key: "";
+    in-out property <string> settings-download-folder: "";
+    in-out property <string> settings-cache-folder: "";
+    in-out property <bool> settings-device-sync: false;
 
     callback section-changed(string);
     callback search-changed(string);
@@ -1001,6 +1018,8 @@ export component AppWindow inherits Window {
     callback track-activated(int);
     callback play-next-requested(int);
     callback enqueue-requested(int);
+    callback favourite-toggled(int, bool);
+    callback rating-changed(int, int);
     callback toggle-playback();
     callback previous-track();
     callback next-track();
@@ -1008,7 +1027,9 @@ export component AppWindow inherits Window {
     callback volume-changed(float);
     callback queue-move(int, int);
     callback queue-remove(int);
-    callback save-settings(string, int, int, string, int, string, string);
+    callback save-settings(string, int, int, string, int, string, string, string, string, bool);
+    callback pick-settings-folder(string);
+    callback clear-settings-folder(string);
     callback onboarding-next();
     callback onboarding-back();
     callback onboarding-finish();
@@ -1020,7 +1041,7 @@ export component AppWindow inherits Window {
 
     private property <int> bitrate-shown: round(root.settings-bitrate);
     private property <int> cache-shown: round(root.settings-cache-mib);
-    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "settings" ? "Settings" : "Library folders";
+    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "history" ? "History" : root.section == "favourites" ? "Favourites" : root.section == "settings" ? "Settings" : "Library folders";
 
     Rectangle {
         VerticalLayout {
@@ -1081,6 +1102,20 @@ export component AppWindow inherits Window {
                         active: root.section == "albums";
                         clicked => {
                             root.section-changed("albums");
+                        }
+                    }
+                    NavItem {
+                        label: "History";
+                        active: root.section == "history";
+                        clicked => {
+                            root.section-changed("history");
+                        }
+                    }
+                    NavItem {
+                        label: "Favourites";
+                        active: root.section == "favourites";
+                        clicked => {
+                            root.section-changed("favourites");
                         }
                     }
                     NavItem {
@@ -1208,6 +1243,40 @@ export component AppWindow inherits Window {
                             enqueue(id) => {
                                 root.enqueue-requested(id);
                             }
+                            favourite(id, starred) => {
+                                root.favourite-toggled(id, starred);
+                            }
+                            rate(id, rating) => {
+                                root.rating-changed(id, rating);
+                            }
+                        }
+
+                        if root.most-played-tracks.length > 0 : Text {
+                            text: "Most played";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+
+                        for item[index] in root.most-played-tracks : TrackRowItem {
+                            track: item;
+                            position: index + 1;
+                            show-index: true;
+                            activated(id) => {
+                                root.track-activated(id);
+                            }
+                            play-next(id) => {
+                                root.play-next-requested(id);
+                            }
+                            enqueue(id) => {
+                                root.enqueue-requested(id);
+                            }
+                            favourite(id, starred) => {
+                                root.favourite-toggled(id, starred);
+                            }
+                            rate(id, rating) => {
+                                root.rating-changed(id, rating);
+                            }
                         }
                     }
                 }
@@ -1332,6 +1401,89 @@ export component AppWindow inherits Window {
                         }
 
                         Text {
+                            text: "Download folder";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Where downloaded tracks are written. Leave it on the default to keep them inside the library.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            Text {
+                                text: root.settings-download-folder == "" ? "Default (inside the library)" : root.settings-download-folder;
+                                color: Palette.muted;
+                                font-size: 12px;
+                                horizontal-stretch: 1;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                            ActionButton {
+                                label: "Browse…";
+                                primary: false;
+                                clicked => {
+                                    root.pick-settings-folder("download");
+                                }
+                            }
+                            ActionButton {
+                                label: "Default";
+                                primary: false;
+                                clicked => {
+                                    root.clear-settings-folder("download");
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: "Cache folder";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Where cached tracks live. Leave it on the default to use the app data directory.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            Text {
+                                text: root.settings-cache-folder == "" ? "Default (app data)" : root.settings-cache-folder;
+                                color: Palette.muted;
+                                font-size: 12px;
+                                horizontal-stretch: 1;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                            ActionButton {
+                                label: "Browse…";
+                                primary: false;
+                                clicked => {
+                                    root.pick-settings-folder("cache");
+                                }
+                            }
+                            ActionButton {
+                                label: "Default";
+                                primary: false;
+                                clicked => {
+                                    root.clear-settings-folder("cache");
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
                             text: "Artwork";
                             color: Palette.text;
                             font-size: 16px;
@@ -1417,12 +1569,47 @@ export component AppWindow inherits Window {
                             }
                         }
 
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
+                            text: "Device sync";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Opt in to syncing with a device when it is plugged in. Off by default; Android never syncs to an external device.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            ActionButton {
+                                label: "Enabled";
+                                primary: root.settings-device-sync;
+                                clicked => {
+                                    root.settings-device-sync = true;
+                                }
+                            }
+                            ActionButton {
+                                label: "Disabled";
+                                primary: !root.settings-device-sync;
+                                clicked => {
+                                    root.settings-device-sync = false;
+                                }
+                            }
+                        }
+
                         HorizontalLayout {
                             spacing: 14px;
                             ActionButton {
                                 label: "Save settings";
                                 clicked => {
-                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key);
+                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key, root.settings-download-folder, root.settings-cache-folder, root.settings-device-sync);
                                 }
                             }
                             ActionButton {
@@ -1443,29 +1630,65 @@ export component AppWindow inherits Window {
                 }
 
                 // ------------------------------------------------------- tracks
-                if root.section == "tracks" : ScrollView {
-                    VerticalLayout {
-                        padding: 24px;
-                        spacing: 2px;
+                if root.section == "tracks" : TrackList {
+                    rows: root.all-tracks;
+                    empty-message: root.search-text == "" ? "No tracks indexed yet." : "No tracks match your search.";
+                    activated(id) => {
+                        root.track-activated(id);
+                    }
+                    play-next(id) => {
+                        root.play-next-requested(id);
+                    }
+                    enqueue(id) => {
+                        root.enqueue-requested(id);
+                    }
+                    favourite(id, starred) => {
+                        root.favourite-toggled(id, starred);
+                    }
+                    rate(id, rating) => {
+                        root.rating-changed(id, rating);
+                    }
+                }
 
-                        if root.all-tracks.length == 0 : EmptyState {
-                            message: root.search-text == "" ? "No tracks indexed yet." : "No tracks match your search.";
-                        }
+                // ------------------------------------------------------ history
+                if root.section == "history" : TrackList {
+                    rows: root.history-tracks;
+                    empty-message: "Nothing played yet. Start a track and it will show up here.";
+                    activated(id) => {
+                        root.track-activated(id);
+                    }
+                    play-next(id) => {
+                        root.play-next-requested(id);
+                    }
+                    enqueue(id) => {
+                        root.enqueue-requested(id);
+                    }
+                    favourite(id, starred) => {
+                        root.favourite-toggled(id, starred);
+                    }
+                    rate(id, rating) => {
+                        root.rating-changed(id, rating);
+                    }
+                }
 
-                        for item[index] in root.all-tracks : TrackRowItem {
-                            track: item;
-                            position: index + 1;
-                            show-index: true;
-                            activated(id) => {
-                                root.track-activated(id);
-                            }
-                            play-next(id) => {
-                                root.play-next-requested(id);
-                            }
-                            enqueue(id) => {
-                                root.enqueue-requested(id);
-                            }
-                        }
+                // --------------------------------------------------- favourites
+                if root.section == "favourites" : TrackList {
+                    rows: root.favourite-tracks;
+                    empty-message: "No favourites yet. Press the heart beside a track to keep it here.";
+                    activated(id) => {
+                        root.track-activated(id);
+                    }
+                    play-next(id) => {
+                        root.play-next-requested(id);
+                    }
+                    enqueue(id) => {
+                        root.enqueue-requested(id);
+                    }
+                    favourite(id, starred) => {
+                        root.favourite-toggled(id, starred);
+                    }
+                    rate(id, rating) => {
+                        root.rating-changed(id, rating);
                     }
                 }
 

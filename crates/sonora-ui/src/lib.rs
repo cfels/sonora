@@ -22,13 +22,15 @@ use sonora_core::{
     format_duration, ArtworkFormat, Event, FolderTemplate, FormatPreference, FormatTier, Settings,
     TrackId, TrackView,
 };
-use sonora_db::{AlbumSummary, Db};
+use sonora_db::{AlbumSummary, Db, HistoryEntry};
 use sonora_playback::{Engine, PlaybackState, Resolver};
 use sonora_scan::Scanner;
 use tokio::runtime::Handle;
 use tokio::sync::broadcast;
 
 const RECENT_LIMIT: usize = 8;
+const MOST_PLAYED_LIMIT: i64 = 8;
+const HISTORY_LIMIT: i64 = 200;
 const PAGE_LIMIT: i64 = 500;
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// Transport artwork is tiny, so 96px is plenty even on a high-DPI screen.
@@ -225,7 +227,16 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         let db = ctx.db.clone();
         let handle = handle.clone();
         ui.on_save_settings(
-            move |tier, bitrate, cache_mib, artwork_format, quality, template, lastfm_key| {
+            move |tier,
+                  bitrate,
+                  cache_mib,
+                  artwork_format,
+                  quality,
+                  template,
+                  lastfm_key,
+                  download_folder,
+                  cache_folder,
+                  device_sync| {
                 let weak = weak.clone();
                 let db = db.clone();
                 handle.spawn(async move {
@@ -247,6 +258,9 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                     settings.artwork.quality = quality.clamp(0, 255) as u8;
                     settings.folder_template = FolderTemplate::new(template.to_string());
                     settings.lastfm_api_key = Some(lastfm_key.to_string());
+                    settings.download_folder = optional_path(download_folder.as_str());
+                    settings.cache_folder = optional_path(cache_folder.as_str());
+                    settings.device_sync_enabled = device_sync;
                     let settings = settings.normalized();
 
                     match db.save_settings(&settings).await {
@@ -265,6 +279,102 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                 });
             },
         );
+    }
+
+    // Native folder pickers for the download and cache locations. Android has
+    // no rfd backend, so the callbacks stay unregistered there and pressing
+    // Browse is a no-op; the stored paths keep working on every platform.
+    #[cfg(not(target_os = "android"))]
+    {
+        let weak = weak.clone();
+        let handle = handle.clone();
+        ui.on_pick_settings_folder(move |kind| {
+            let weak = weak.clone();
+            let is_cache = kind.as_str() == "cache";
+            let handle = handle.clone();
+            handle.spawn(async move {
+                let title = if is_cache {
+                    "Choose a folder for cached tracks"
+                } else {
+                    "Choose a folder for downloads"
+                };
+                let picked = rfd::AsyncFileDialog::new()
+                    .set_title(title)
+                    .pick_folder()
+                    .await;
+                let Some(folder) = picked else {
+                    return;
+                };
+                let path = folder.path().display().to_string();
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    if is_cache {
+                        ui.set_settings_cache_folder(path.into());
+                    } else {
+                        ui.set_settings_download_folder(path.into());
+                    }
+                });
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        ui.on_clear_settings_folder(move |kind| {
+            if let Some(ui) = weak.upgrade() {
+                if kind.as_str() == "cache" {
+                    ui.set_settings_cache_folder("".into());
+                } else {
+                    ui.set_settings_download_folder("".into());
+                }
+            }
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let ctx = ctx.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_favourite_toggled(move |id, favourite| {
+            let weak = weak.clone();
+            let ctx = ctx.clone();
+            let lookup = lookup.clone();
+            let handle_for_refresh = handle.clone();
+            handle.spawn(async move {
+                if let Err(err) = ctx.db.set_favourite(id as TrackId, favourite).await {
+                    log::error!("could not update favourite: {err}");
+                    return;
+                }
+                refresh_all(weak, ctx, handle_for_refresh, lookup);
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let ctx = ctx.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_rating_changed(move |id, current| {
+            // Clicking cycles 0 → 1 → … → 5 → 0, so one control can both set
+            // and clear a rating without a second button.
+            let next = if !(0..5).contains(&current) {
+                0
+            } else {
+                current + 1
+            };
+            let weak = weak.clone();
+            let ctx = ctx.clone();
+            let lookup = lookup.clone();
+            let handle_for_refresh = handle.clone();
+            handle.spawn(async move {
+                if let Err(err) = ctx.db.set_rating(id as TrackId, next as u8).await {
+                    log::error!("could not update rating: {err}");
+                    return;
+                }
+                refresh_all(weak, ctx, handle_for_refresh, lookup);
+            });
+        });
     }
 
     {
@@ -344,7 +454,14 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
     }
 
     let _timers = engine.clone().map(|engine| {
-        let playback = attach_playback(&ui, weak.clone(), engine.clone(), lookup.clone());
+        let playback = attach_playback(
+            &ui,
+            weak.clone(),
+            engine.clone(),
+            lookup.clone(),
+            ctx.db.clone(),
+            handle.clone(),
+        );
         let artwork = wire_artwork(weak.clone(), ctx.db.clone(), handle.clone(), engine);
         (playback, artwork)
     });
@@ -388,6 +505,8 @@ fn attach_playback(
     weak: Weak<AppWindow>,
     engine: Arc<Engine>,
     lookup: Arc<Mutex<TrackLookup>>,
+    db: Db,
+    handle: Handle,
 ) -> Timer {
     {
         let engine = engine.clone();
@@ -457,7 +576,22 @@ fn attach_playback(
         let engine = engine.clone();
         let lookup = lookup.clone();
         let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
         ui.on_next_track(move || {
+            // `next` is only called from the transport, so pressing it while a
+            // track is live is a skip. Natural gapless advances never come
+            // through here; the timer records the incoming track instead.
+            if engine.state() != PlaybackState::Stopped {
+                if let Some(track) = engine.current() {
+                    let db = db.clone();
+                    handle.spawn(async move {
+                        if let Err(err) = db.record_skip(track).await {
+                            log::warn!("could not record a skip: {err}");
+                        }
+                    });
+                }
+            }
             if let Err(err) = engine.next() {
                 log::warn!("could not skip: {err}");
             }
@@ -506,7 +640,12 @@ fn attach_playback(
     let timer = Timer::default();
     let timer_weak = weak;
     let timer_engine = engine;
+    let timer_db = db;
+    let timer_handle = handle;
     let mut last_track = None;
+    // Which track this listening session has already been counted, so pausing
+    // and resuming does not inflate the play count.
+    let mut recorded: Option<TrackId> = None;
     timer.start(TimerMode::Repeated, POLL_INTERVAL, move || {
         let Some(ui) = timer_weak.upgrade() else {
             return;
@@ -517,13 +656,31 @@ fn attach_playback(
         let current = timer_engine.current();
         if current != last_track {
             last_track = current;
+            recorded = None;
             if ui.get_lyrics_open() {
                 ui.set_lyrics_text("".into());
                 ui.set_lyrics_status("New track. Press Fetch lyrics.".into());
             }
         }
 
-        ui.set_playing(timer_engine.state() == PlaybackState::Playing);
+        // Record the play once the engine is actually playing it. A restored
+        // queue has a current track before it is started, so state matters.
+        let state = timer_engine.state();
+        if state == PlaybackState::Playing {
+            if let Some(track) = current {
+                if recorded != Some(track) {
+                    recorded = Some(track);
+                    let db = timer_db.clone();
+                    timer_handle.spawn(async move {
+                        if let Err(err) = db.record_play(track).await {
+                            log::warn!("could not record a play: {err}");
+                        }
+                    });
+                }
+            }
+        }
+
+        ui.set_playing(state == PlaybackState::Playing);
         let position = timer_engine.position_ms().unwrap_or(0);
         let duration = timer_engine.duration_ms().unwrap_or(0);
         ui.set_position_ms(saturating_i32(position));
@@ -605,6 +762,13 @@ fn refresh_all(
             .unwrap_or_default();
         let tracks = ctx.db.list_tracks(PAGE_LIMIT, 0).await.unwrap_or_default();
         let albums = ctx.db.albums().await.unwrap_or_default();
+        let most_played = ctx
+            .db
+            .most_played(MOST_PLAYED_LIMIT)
+            .await
+            .unwrap_or_default();
+        let favourites = ctx.db.favourites(PAGE_LIMIT).await.unwrap_or_default();
+        let history = ctx.db.history(HISTORY_LIMIT, 0).await.unwrap_or_default();
         let folders: Vec<slint::SharedString> = ctx
             .db
             .folders()
@@ -617,7 +781,10 @@ fn refresh_all(
         remember(&lookup, &tracks);
 
         let recent_rows = track_rows(&recent);
-        let track_rows = track_rows(&tracks);
+        let all_rows = track_rows(&tracks);
+        let most_played_rows = track_rows(&most_played);
+        let favourite_rows = track_rows(&favourites);
+        let history_rows = history_rows(&history);
         let album_rows = album_rows(&albums);
         let duration = format_duration(stats.total_duration_ms);
 
@@ -627,7 +794,10 @@ fn refresh_all(
             ui.set_artist_count(stats.artists as i32);
             ui.set_library_duration(duration.into());
             ui.set_recent_tracks(model(recent_rows));
-            ui.set_all_tracks(model(track_rows));
+            ui.set_all_tracks(model(all_rows));
+            ui.set_most_played_tracks(model(most_played_rows));
+            ui.set_favourite_tracks(model(favourite_rows));
+            ui.set_history_tracks(model(history_rows));
             ui.set_albums(model(album_rows));
             ui.set_folders(model(folders));
         });
@@ -992,6 +1162,34 @@ fn apply_settings(ui: &AppWindow, settings: &Settings) {
     ui.set_settings_artwork_quality(i32::from(settings.artwork.quality));
     ui.set_settings_folder_template(settings.folder_template.as_str().into());
     ui.set_settings_lastfm_key(settings.lastfm_api_key.clone().unwrap_or_default().into());
+    ui.set_settings_download_folder(
+        settings
+            .download_folder
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default()
+            .into(),
+    );
+    ui.set_settings_cache_folder(
+        settings
+            .cache_folder
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default()
+            .into(),
+    );
+    ui.set_settings_device_sync(settings.device_sync_enabled);
+}
+
+/// An empty path field means "use the default location", not "a folder named
+/// the empty string".
+fn optional_path(value: &str) -> Option<PathBuf> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(value))
+    }
 }
 
 fn set_status(weak: &Weak<AppWindow>, message: impl Into<slint::SharedString>) {
@@ -1098,8 +1296,54 @@ fn track_rows(tracks: &[TrackView]) -> Vec<TrackRow> {
             title: track.title.clone().into(),
             subtitle: subtitle_for(track).into(),
             duration: format_duration(track.duration_ms).into(),
+            favourite: track.favourite,
+            rating: track.rating.clamp(0, 5) as i32,
         })
         .collect()
+}
+
+/// History rows keep the track subtitle but add when it played and whether it
+/// was skipped, so the log reads like a log rather than a duplicate of Tracks.
+fn history_rows(entries: &[HistoryEntry]) -> Vec<TrackRow> {
+    entries
+        .iter()
+        .map(|entry| {
+            let mut subtitle = format!(
+                "{} · {}",
+                subtitle_for(&entry.track),
+                relative_time(entry.played_at)
+            );
+            if entry.skipped {
+                subtitle.push_str(" · skipped");
+            }
+            TrackRow {
+                id: saturating_i32(entry.track.id as u64),
+                title: entry.track.title.clone().into(),
+                subtitle: subtitle.into(),
+                duration: format_duration(entry.track.duration_ms).into(),
+                favourite: entry.track.favourite,
+                rating: entry.track.rating.clamp(0, 5) as i32,
+            }
+        })
+        .collect()
+}
+
+/// Coarse age label; exact clock times are noise in a play history.
+fn relative_time(played_at: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .unwrap_or(played_at);
+    let seconds = (now - played_at).max(0);
+    if seconds < 60 {
+        "just now".to_string()
+    } else if seconds < 3_600 {
+        format!("{} min ago", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("{} h ago", seconds / 3_600)
+    } else {
+        format!("{} d ago", seconds / 86_400)
+    }
 }
 
 fn subtitle_for(track: &TrackView) -> String {

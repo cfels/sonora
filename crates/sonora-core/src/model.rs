@@ -150,6 +150,12 @@ pub struct TrackView {
     pub file_size: i64,
     pub added_at: i64,
     pub path: PathBuf,
+    /// Has the user starred this track?
+    pub favourite: bool,
+    /// 0 means unrated; 1–5 are the stars the user chose.
+    pub rating: i64,
+    /// How many times playback has started on this track.
+    pub play_count: i64,
 }
 
 impl TrackView {

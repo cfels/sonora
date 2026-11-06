@@ -342,6 +342,15 @@ impl Settings {
         if self.folder_template.as_str().trim().is_empty() {
             self.folder_template = FolderTemplate::default();
         }
+        // A blank path means "use the default location", not a folder named "".
+        self.download_folder = self
+            .download_folder
+            .take()
+            .filter(|path| !path.as_os_str().is_empty());
+        self.cache_folder = self
+            .cache_folder
+            .take()
+            .filter(|path| !path.as_os_str().is_empty());
         self
     }
 
@@ -380,6 +389,9 @@ mod tests {
             file_size: 40_000_000,
             added_at: 0,
             path: PathBuf::from("/library/x.flac"),
+            favourite: false,
+            rating: 0,
+            play_count: 0,
         }
     }
 
@@ -502,6 +514,18 @@ mod tests {
 
         let restored = Settings::from_json(&settings.to_json()).unwrap();
         assert_eq!(restored, settings);
+    }
+
+    #[test]
+    fn blank_folder_paths_fall_back_to_the_default_location() {
+        let settings = Settings {
+            download_folder: Some(PathBuf::new()),
+            cache_folder: Some(PathBuf::new()),
+            ..Settings::default()
+        };
+        let settings = settings.normalized();
+        assert_eq!(settings.download_folder, None);
+        assert_eq!(settings.cache_folder, None);
     }
 
     #[test]

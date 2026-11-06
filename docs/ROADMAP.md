@@ -35,15 +35,18 @@ Delivered:
   drag reorder, repeat off/all/one), tested in `sonora-core::queue`.
 - Transport bar (track, play/pause, previous/next, click-to-seek, volume),
   per-row play/Next/Add actions and a drag-reorderable queue panel.
+- Queue persistence: the queue snapshot survives a restart, including shuffle
+  state and repeat mode.
+- Settings: format preference and ceiling, cache budget, artwork format/quality,
+  folder template, the Last.fm key, native download/cache folder pickers and the
+  device-sync opt-in.
+- Play activity: history, play and skip counts, star ratings and favourites,
+  written by the UI, shown on Home (Most played), History and Favourites, and
+  readable headlessly with `sonora --history`.
 
 Still open:
 
 - Device selection and ReplayGain from tags.
-- Folder pickers for the download and cache locations, and the device-sync
-  opt-in. The settings screen covers format preference and ceiling, cache
-  budget, artwork format/quality, folder template and the Last.fm key.
-- Persisted queue across restarts.
-- Play counts, ratings, favourites, skip tracking, history.
 - Album and artist detail views, and artwork in the rows instead of placeholders.
 - Custom playlists and smart playlists with a rule editor.
 - MPRIS (Linux) and SMTC (Windows) media controls; Android uses its platform

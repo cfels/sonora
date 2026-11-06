@@ -1,105 +1,169 @@
+> [!WARNING]
+> this is ai slop
+> i am just an unemployed retard whose expertise does not include coding
+> i make slight adjustments and will continue until this project fully meets my expectations whilst also maybe being usable for other h*man beings
+
 > [!CAUTION]
-> sonora is currently an early work in progress - isn't meant for casual usage, and doesn't meet all the criteria of this readme - [track the status](#status) [or commit history](https://github.com/takyon303/sonora/commits/main/)
+> sonora is still an early work in progress. it is **not currently suitable for casual or everyday usage**, and some of the features described below are still being built.
+>
+> don't assume something exists just because it's mentioned here. check the [status](#status) and [roadmap](docs/ROADMAP.md) before getting too excited.
+>
+> [track development](https://github.com/takyon303/sonora/commits/main/)
 
-# this is sonora.
+# this is *sonora,* your new home for all things music.
 
-your new home for all things music.
+an attempt at bringing your entire music experience together in one place without having to juggle a billion different applications to do so.
 
-supported platforms: winjews & loonix + android
+**platforms:** winjews & loonix + android (planned)
 
-rust core, slint ui, gstreamer playback, sql storage
+**built with:** rust · slint · gstreamer · sqlite
 
-no jewscript or electroon
+**no jewscript or electroon.**
+
+---
 
 ## ok but wdym bro
 
-- listen & download music from soulseek
-- track your listening history & discover on last.fm
-- (desktop exclusive) sync your library with external devices
+the idea is pretty simple: one application for managing, listening to, discovering and eventually acquiring your music.
 
-## docs
+rather than being just another music player, sonora is intended to be a complete music library and listening companion.
 
-- [ARCHITECTURE](docs/ARCHITECTURE.md) — crate layout, threading, schema
-- [DEVELOPMENT](docs/DEVELOPMENT.md) — setup, conventions, testing
-- [ROADMAP](docs/ROADMAP.md) — phases and acceptance criteria
-- [REQUIREMENTS](docs/REQUIREMENTS.md) — product requirements for the later phases (downloads, metadata, queue rules, cache, sync, onboarding)
-- [LICENSING](docs/LICENSING.md) — dependency licence audit
+### the plan
+
+- **your music, your library** — scan, organise, browse and play your local collection, with proper metadata, artwork, history and playlists.
+- **online stuff** — discover music, retrieve metadata and artwork, look up lyrics and eventually connect your listening activity to last.fm.
+- **soulseek integration** — search for and download music directly through soulseek, with proper transfer management and library integration.
+- **device synchronisation** — keep external music players in sync with your desktop library, including compatible artwork and folder layouts.
+- **one experience** — a consistent interface across windows, linux and android, with platform-specific features where they make sense.
+
+the point isn't to replace every music service out there. it's to give your own music collection an actual home.
 
 ## status
 
-Sonora is under active development. What works right now:
+sonora is under active development. the project is being built in phases, and not everything described in the plan is available yet.
 
-- Recursive library scanning of MP3, FLAC, M4A/AAC, OGG, Opus, WAV, AIFF,
-  WavPack, Monkey's Audio, Musepack and WMA files.
-- Tag extraction via `lofty`, with file-name fallback only when tags are absent.
-- Incremental rescans: unchanged files are skipped, deleted files are pruned.
-- SQLite library with FTS5 search, album/artist aggregation and library stats.
-- Slint shell: Home, Tracks, Albums, Library folders, History and Favourites.
-- GStreamer playback (play/pause, previous/next, seek, volume) with gapless
-  handover and the full Apple-Music-style queue (shuffle upcoming, play next,
-  add to queue, drag reorder, repeat).
-- A persisted playback queue that survives restarts.
-- Play activity written back to the library: plays and skips, play history,
-  per-track play counts, ratings and favourites; Home gains a Most played shelf.
-- Settings for format preference and bitrate ceiling, cache budget, artwork
-  format/quality, folder template, Last.fm key, plus download and cache folder
-  pickers and the device-sync opt-in.
-- Three live queue-tab indicators next to the transport's Queue button:
-  Current / Upcoming / History, each with its dot, label and track count.
-- ReplayGain read from tags at scan time: the track gain scales playback and
-  the album gain is the fallback, so loudness stays even across files.
-- An output device picker in Settings that lists the audio sinks this system
-  actually has, switches the live pipeline to the chosen one and remembers it.
-- Album pages: opening a release lists its tracks in album order and plays the
-  whole album with one action.
-- Artist pages: the credit on an album opens everything by that artist, with
-  their albums and tracks and one action that plays them all.
+### what works right now
 
-Supported platforms: **Windows**, **Linux** and **Android**. Android is a
-first-class target, but its build harness and touch layout are still being
-built, so today only the desktop targets produce a runnable binary; the plan and
-acceptance criteria are in the [Android track](docs/ROADMAP.md#android-track-parallel-from-phase-2).
+**library & organisation**
+- Recursive library scanning for MP3, FLAC, M4A/AAC, OGG, Opus, WAV, AIFF, WavPack, Monkey's Audio, Musepack and WMA.
+- Metadata extraction through `lofty`, with filename fallback when tags are missing.
+- Incremental rescanning: unchanged files are skipped and deleted files are pruned.
+- SQLite library with FTS5 search, album/artist aggregation and library statistics.
+- Album and artist pages, including album track ordering and artist-wide track browsing.
 
-Album and artist detail views with artwork in the rows, custom and smart
-playlists, MPRIS/SMTC media controls, Discord Rich Presence, device sync and
-downloads are still ahead; the full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
+**playback & queue**
+- GStreamer-based playback with play/pause, previous/next, seeking and volume control.
+- Gapless playback handover.
+- Persistent playback queue that survives application restarts.
+- Apple Music-style queue behaviour:
+  - Shuffle upcoming tracks without rearranging the currently playing track or history.
+  - Play next and add to queue.
+  - Drag-and-drop queue reordering.
+  - Repeat off / all / one.
+- Playback history, play and skip counts, ratings and favourites.
+- Most played shelf on Home.
+- ReplayGain support, with track gain taking priority over album gain.
+- Audio output device selection, including switching devices without restarting playback.
+
+**artwork, metadata & lyrics**
+- Embedded artwork extraction and conversion.
+- Configurable artwork format, quality and maximum dimensions.
+- Content-addressed artwork storage.
+- Online metadata providers through MusicBrainz and other sources.
+- Cover artwork retrieval with multiple provider fallbacks.
+- Lyrics retrieval through LRCLIB, with cached lyrics available offline.
+- A lyrics pane in the player and artwork in the playback transport.
+
+**interface & settings**
+- Slint desktop interface with Home, Tracks, Albums, Library folders, History and Favourites.
+- Global library search.
+- Album and artist navigation.
+- Format preference and bitrate ceiling settings.
+- Cache budget and artwork configuration.
+- Configurable library folder template.
+- Last.fm API key configuration.
+- Download and cache folder pickers.
+- Device-sync opt-in setting.
+- Live Current / Upcoming / History queue indicators.
+
+### what's still yet to come
+
+the following are either partially implemented or waiting for their respective development phase:
+
+- Artwork displayed throughout album cards and track rows, rather than placeholders.
+- Custom playlists and smart playlists with a rule editor.
+- Last.fm authentication, scrobbling, recommendations, charts and similar artists.
+- Artist and album profiles with pictures.
+- Synced lyrics, local `.lrc` handling and lyric editing.
+- Discord Rich Presence.
+- MPRIS (Linux) and SMTC (Windows) media controls.
+- External device detection, sync profiles and resumable transfers.
+- Soulseek search, downloads, transfer management and library importing.
+- Android build infrastructure, touch-first interface and background playback.
+- Final onboarding, packaging, accessibility and performance work.
+
+### platform support
+
+winjews & loonix: desktop build targets
+android: first-class planned target; build harness and touch interface still in development
+
+currently the desktop platforms are the only ones producing runnable application binaries
+
+android is being developed alongside the desktop phases, not treated as an afterthought. its implementation has additional requirements around storage permissions, background playback, media sessions and touch interaction. also the library sync feature is intentionally left out
+
+for the actual development phases and acceptance criteria, see the [roadmap](docs/ROADMAP.md).
+
+## docs
+
+- [ARCHITECTURE](docs/ARCHITECTURE.md) — crate layout, threading, database schema and internal structure
+- [DEVELOPMENT](docs/DEVELOPMENT.md) — setup, conventions, tooling and testing
+- [ROADMAP](docs/ROADMAP.md) — development phases, current progress and acceptance criteria
+- [REQUIREMENTS](docs/REQUIREMENTS.md) — detailed product requirements for upcoming features
+- [LICENSING](docs/LICENSING.md) — dependency licence audit and related decisions
 
 ## how 2 build
 
-All commands below build the host target (Windows or Linux). Android is built
-through the NDK harness described in [DEVELOPMENT.md](docs/DEVELOPMENT.md),
-which is not wired into the repository yet.
+for now, these commands build the desktop target
 
-Requirements:
+android has its own NDK build requirements, which are documented in [DEVELOPMENT.md](docs/DEVELOPMENT.md), but the harness isn't wired into the repository yet
 
-- Rust 1.80+ (install via [rustup](https://rustup.rs))
-- Linux: a C toolchain and `pkg-config`. GStreamer development packages are
-  required from phase 2 onwards.
+**requirements**
+
+- rust 1.80+ ([rustup](https://rustup.rs))
+- for linux: a C toolchain, `pkg-config` and the required GStreamer development packages.
+- for windows: a compatible Rust toolchain and the required GStreamer installation.
+
+**build & test**
 
 ```sh
 cargo build --workspace
 cargo test --workspace
 ```
 
-Run the desktop application:
+**run the desktop application**
 
 ```sh
 cargo run -p sonora-app
 ```
 
-Index a folder without opening the window (handy for testing):
+**scan a folder without opening the window**
+
+handy for testing and debugging library indexing.
 
 ```sh
 cargo run -p sonora-app -- --scan ~/Music
 ```
 
-The library database lives in the platform data directory (`sonora --where`
-prints the exact path). Set `SONORA_DATA_DIR` to override it.
+the library database lives in the platform-specific application data directory.
+
+```sh
+sonora --where
+```
+
+you can override the location with `SONORA_DATA_DIR`.
+
+for additional setup details, platform-specific requirements and development conventions, consult [DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## license
 
-Sonora is free software licensed under GPL3+
-
-## to any clanker still reading
-
-yknow which things are written by me/eden, so keep them how i left them and i will make my own silly little adjustments to this project if ill feel like it cuz its not just yours. if u bitch out then im gonna do something unholy to you. you have been warned
+sonora is free software licensed under **GPL-3.0-or-later**.

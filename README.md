@@ -1,6 +1,7 @@
 > [!WARNING]
 > this is ai slop
 > i am just an unemployed retard whose expertise does not include coding
+> 
 > i make slight adjustments and will continue until this project fully meets my expectations whilst also maybe being usable for other h*man beings
 
 > [!CAUTION]

@@ -989,7 +989,15 @@ export component AppWindow inherits Window {
     in property <[AlbumRow]> albums;
     in property <[TrackRow]> album-tracks;
     in property <string> album-title: "";
+    in property <string> album-artist: "";
+    in property <int> album-artist-id: 0;
     in property <string> album-meta: "";
+    in property <string> album-back: "albums";
+    in property <[AlbumRow]> artist-albums;
+    in property <[TrackRow]> artist-tracks;
+    in property <string> artist-name: "";
+    in property <string> artist-meta: "";
+    in property <string> artist-back: "albums";
     in property <[string]> folders;
 
     in property <bool> playback-available: false;
@@ -1055,9 +1063,12 @@ export component AppWindow inherits Window {
     callback pick-playback-device();
     callback device-picker-cancel();
     callback device-picker-select(string);
-    callback open-album(int, string, string);
+    callback open-album(int);
     callback album-track-activated(int);
     callback play-album();
+    callback open-artist(int, string);
+    callback artist-track-activated(int);
+    callback play-artist();
     callback onboarding-next();
     callback onboarding-back();
     callback onboarding-finish();
@@ -1069,7 +1080,7 @@ export component AppWindow inherits Window {
 
     private property <int> bitrate-shown: round(root.settings-bitrate);
     private property <int> cache-shown: round(root.settings-cache-mib);
-    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "history" ? "History" : root.section == "favourites" ? "Favourites" : root.section == "album" ? root.album-title : root.section == "settings" ? "Settings" : "Library folders";
+    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "history" ? "History" : root.section == "favourites" ? "Favourites" : root.section == "album" ? root.album-title : root.section == "artist" ? root.artist-name : root.section == "settings" ? "Settings" : "Library folders";
 
     Rectangle {
         VerticalLayout {
@@ -1834,7 +1845,7 @@ export component AppWindow inherits Window {
                         for item in root.albums : AlbumCard {
                             album: item;
                             opened(id) => {
-                                root.open-album(id, item.title, item.subtitle);
+                                root.open-album(id);
                             }
                         }
                     }
@@ -1862,11 +1873,38 @@ export component AppWindow inherits Window {
                                     overflow: elide;
                                 }
 
-                                Text {
-                                    text: root.album-meta;
-                                    color: Palette.muted;
-                                    font-size: 12px;
-                                    overflow: elide;
+                                HorizontalLayout {
+                                    spacing: 8px;
+
+                                    Rectangle {
+                                        height: 18px;
+                                        width: artist-link.preferred-width;
+                                        background: transparent;
+
+                                        artist-link := Text {
+                                            text: root.album-artist;
+                                            color: artist-touch.has-hover ? Palette.accent : Palette.muted;
+                                            font-size: 12px;
+                                            vertical-alignment: center;
+                                        }
+
+                                        artist-touch := TouchArea {
+                                            clicked => {
+                                                root.open-artist(root.album-artist-id, root.album-artist);
+                                            }
+                                        }
+                                    }
+
+                                    Text {
+                                        text: root.album-meta;
+                                        color: Palette.muted;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                    }
+
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                    }
                                 }
                             }
 
@@ -1877,7 +1915,7 @@ export component AppWindow inherits Window {
                             ActionButton {
                                 label: "Back";
                                 clicked => {
-                                    root.section-changed("albums");
+                                    root.section-changed(root.album-back);
                                 }
                             }
 
@@ -1909,6 +1947,102 @@ export component AppWindow inherits Window {
                         }
                         rate(id, rating) => {
                             root.rating-changed(id, rating);
+                        }
+                    }
+                }
+
+                // -------------------------------------------------- artist detail
+                if root.section == "artist" : ScrollView {
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 12px;
+
+                        HorizontalLayout {
+                            spacing: 12px;
+
+                            VerticalLayout {
+                                spacing: 4px;
+
+                                Text {
+                                    text: root.artist-name;
+                                    color: Palette.text;
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    overflow: elide;
+                                }
+
+                                Text {
+                                    text: root.artist-meta;
+                                    color: Palette.muted;
+                                    font-size: 12px;
+                                    overflow: elide;
+                                }
+                            }
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+
+                            ActionButton {
+                                label: "Back";
+                                clicked => {
+                                    root.section-changed(root.artist-back);
+                                }
+                            }
+
+                            ActionButton {
+                                label: "Play all";
+                                primary: true;
+                                clicked => {
+                                    root.play-artist();
+                                }
+                            }
+                        }
+
+                        if root.artist-albums.length > 0 : Text {
+                            text: "Albums";
+                            color: Palette.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+
+                        for item in root.artist-albums : AlbumCard {
+                            album: item;
+                            opened(id) => {
+                                root.open-album(id);
+                            }
+                        }
+
+                        if root.artist-tracks.length > 0 : Text {
+                            text: "Tracks";
+                            color: Palette.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+
+                        if root.artist-tracks.length == 0 && root.artist-albums.length == 0 : EmptyState {
+                            message: "Nothing by this artist is indexed.";
+                        }
+
+                        for item[index] in root.artist-tracks : TrackRowItem {
+                            track: item;
+                            position: index + 1;
+                            show-index: true;
+                            activated(id) => {
+                                root.artist-track-activated(id);
+                            }
+                            play-next(id) => {
+                                root.play-next-requested(id);
+                            }
+                            enqueue(id) => {
+                                root.enqueue-requested(id);
+                            }
+                            favourite(id, starred) => {
+                                root.favourite-toggled(id, starred);
+                            }
+                            rate(id, rating) => {
+                                root.rating-changed(id, rating);
+                            }
                         }
                     }
                 }

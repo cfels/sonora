@@ -8,8 +8,8 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use sonora_core::{
-    sort_key, AlbumId, Error, FolderId, LibraryStats, Result, ScanReport, ScannedTrack, Settings,
-    TrackId, TrackView, QUEUE_KEY, SETTINGS_KEY,
+    sort_key, AlbumId, ArtistId, Error, FolderId, LibraryStats, Result, ScanReport, ScannedTrack,
+    Settings, TrackId, TrackView, QUEUE_KEY, SETTINGS_KEY,
 };
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePool, SqlitePoolOptions,
@@ -39,6 +39,12 @@ const TRACK_COLUMNS: &str = "
     COALESCE(act.favourite, 0) AS favourite,
     COALESCE(act.rating, 0) AS rating,
     COALESCE(act.play_count, 0) AS play_count
+";
+
+const ALBUM_COLUMNS: &str = "
+    al.id, al.album_artist_id, al.title, aar.name AS album_artist, al.year,
+    COUNT(t.id) AS track_count,
+    COALESCE(SUM(t.duration_ms), 0) AS duration_ms
 ";
 
 const TRACK_FROM: &str = "
@@ -198,30 +204,73 @@ impl Db {
     }
 
     pub async fn albums(&self) -> Result<Vec<AlbumSummary>> {
-        let rows = sqlx::query(
-            "SELECT al.id, al.title, aar.name AS album_artist, al.year,
-                    COUNT(t.id) AS track_count,
-                    COALESCE(SUM(t.duration_ms), 0) AS duration_ms
+        let sql = format!(
+            "SELECT {ALBUM_COLUMNS}
              FROM albums al
              JOIN artists aar ON aar.id = al.album_artist_id
              LEFT JOIN tracks t ON t.album_id = al.id
              GROUP BY al.id
-             ORDER BY aar.sort_name, al.year, al.title",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .db()?;
-        Ok(rows
-            .iter()
-            .map(|row| AlbumSummary {
-                id: row.get("id"),
-                title: row.get("title"),
-                album_artist: row.get("album_artist"),
-                year: row.try_get::<Option<i64>, _>("year").unwrap_or(None),
-                track_count: row.get("track_count"),
-                duration_ms: row.get("duration_ms"),
-            })
-            .collect())
+             ORDER BY aar.sort_name, al.year, al.title"
+        );
+        let rows = sqlx::query(&sql).fetch_all(&self.pool).await.db()?;
+        Ok(rows.iter().map(map_album).collect())
+    }
+
+    /// One album on its own, for a page that knows the id but not the details.
+    pub async fn album(&self, album: AlbumId) -> Result<Option<AlbumSummary>> {
+        let sql = format!(
+            "SELECT {ALBUM_COLUMNS}
+             FROM albums al
+             JOIN artists aar ON aar.id = al.album_artist_id
+             LEFT JOIN tracks t ON t.album_id = al.id
+             WHERE al.id = ?1
+             GROUP BY al.id"
+        );
+        let row = sqlx::query(&sql)
+            .bind(album)
+            .fetch_optional(&self.pool)
+            .await
+            .db()?;
+        Ok(row.as_ref().map(map_album))
+    }
+
+    /// Albums this artist is credited for, earliest release first.
+    ///
+    /// Album-artist credits are what make a release "by" someone, so an artist
+    /// page built on this lists their own records and not the compilations they
+    /// only appear on.
+    pub async fn artist_albums(&self, artist: ArtistId) -> Result<Vec<AlbumSummary>> {
+        let sql = format!(
+            "SELECT {ALBUM_COLUMNS}
+             FROM albums al
+             JOIN artists aar ON aar.id = al.album_artist_id
+             LEFT JOIN tracks t ON t.album_id = al.id
+             WHERE al.album_artist_id = ?1
+             GROUP BY al.id
+             ORDER BY COALESCE(al.year, 0), al.title"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(artist)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_album).collect())
+    }
+
+    /// Everything this artist performs, grouped by release and in running order.
+    pub async fn artist_tracks(&self, artist: ArtistId) -> Result<Vec<TrackView>> {
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} {TRACK_FROM}
+             WHERE t.artist_id = ?1
+             ORDER BY COALESCE(al.year, 0), al.title,
+                      COALESCE(t.disc_no, 1), COALESCE(t.track_no, 9999), t.title"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(artist)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_track).collect())
     }
 
     /// Every track on one album, in the order the album was recorded.
@@ -846,6 +895,9 @@ impl StoredLyrics {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlbumSummary {
     pub id: AlbumId,
+    /// The artist credited for the release as a whole, so a name on an album
+    /// page can open everything by that artist.
+    pub album_artist_id: ArtistId,
     pub title: String,
     pub album_artist: String,
     pub year: Option<i64>,
@@ -868,6 +920,18 @@ fn now() -> i64 {
 
 fn opt_string(row: &SqliteRow, column: &str) -> Option<String> {
     row.try_get::<Option<String>, _>(column).unwrap_or(None)
+}
+
+fn map_album(row: &SqliteRow) -> AlbumSummary {
+    AlbumSummary {
+        id: row.get("id"),
+        album_artist_id: row.get("album_artist_id"),
+        title: row.get("title"),
+        album_artist: row.get("album_artist"),
+        year: row.try_get::<Option<i64>, _>("year").unwrap_or(None),
+        track_count: row.get("track_count"),
+        duration_ms: row.get("duration_ms"),
+    }
 }
 
 fn map_track(row: &SqliteRow) -> TrackView {
@@ -1221,6 +1285,71 @@ mod tests {
         assert_eq!(titles, vec!["Xtal", "Tha", "Untitled"]);
 
         assert!(db.album_tracks(9_999).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn artist_pages_list_their_albums_and_tracks() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+
+        let mut first = track("/music/1.mp3", "Xtal", "Aphex Twin", "SAW 85-92");
+        first.year = Some(1992);
+        first.track_no = Some(1);
+        let mut second = track("/music/2.mp3", "Tha", "Aphex Twin", "SAW 85-92");
+        second.year = Some(1992);
+        second.track_no = Some(2);
+        let mut later = track("/music/8.mp3", "Windowlicker", "Aphex Twin", "Windowlicker");
+        later.year = Some(1999);
+        let other = track(
+            "/music/9.mp3",
+            "Roygbiv",
+            "Boards of Canada",
+            "Music Has the Right",
+        );
+
+        db.upsert_scanned(folder, run, &[later, second, first, other])
+            .await
+            .unwrap();
+
+        let albums = db.albums().await.unwrap();
+        let saw = albums
+            .iter()
+            .find(|album| album.title == "SAW 85-92")
+            .expect("album");
+        let boards = albums
+            .iter()
+            .find(|album| album.title == "Music Has the Right")
+            .expect("album");
+        assert_ne!(saw.album_artist_id, boards.album_artist_id);
+
+        // A single album answers with the same counts the list shows.
+        let single = db.album(saw.id).await.unwrap().expect("album");
+        assert_eq!(single.track_count, 2);
+        assert_eq!(db.album(9_999).await.unwrap(), None);
+
+        let titles: Vec<String> = db
+            .artist_albums(saw.album_artist_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|album| album.title)
+            .collect();
+        assert_eq!(titles, vec!["SAW 85-92", "Windowlicker"]);
+
+        let tracks: Vec<String> = db
+            .artist_tracks(saw.album_artist_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|track| track.title)
+            .collect();
+        assert_eq!(tracks, vec!["Xtal", "Tha", "Windowlicker"]);
+
+        // Another artist's page must not pick up Aphex Twin's release.
+        let boards_tracks = db.artist_tracks(boards.album_artist_id).await.unwrap();
+        assert_eq!(boards_tracks.len(), 1);
+        assert_eq!(boards_tracks[0].title, "Roygbiv");
     }
 
     #[tokio::test]

@@ -53,10 +53,13 @@ Delivered:
 - Album pages: clicking a release in Albums opens its tracks in disc/track
   order (untagged files last), with one action that plays the whole album
   and the usual per-row play, queue, rating and favourite controls.
+- Artist pages: the artist credit on an album opens everything by that
+  artist — their albums and every track they perform — with one action that
+  plays them all. Back returns to the release the artist was opened from.
 
 Still open:
 
-- Artist detail views, and artwork in the rows instead of placeholders.
+- Artwork in the rows and on album cards instead of placeholders.
 - Custom playlists and smart playlists with a rule editor.
 - MPRIS (Linux) and SMTC (Windows) media controls; Android uses its platform
   media session instead (see the Android track).

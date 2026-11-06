@@ -19,8 +19,8 @@ use std::time::Duration;
 
 use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel, Weak};
 use sonora_core::{
-    format_duration, AlbumId, ArtworkFormat, Event, FolderTemplate, FormatPreference, FormatTier,
-    Settings, TrackId, TrackView,
+    format_duration, AlbumId, ArtistId, ArtworkFormat, Event, FolderTemplate, FormatPreference,
+    FormatTier, Settings, TrackId, TrackView,
 };
 use sonora_db::{AlbumSummary, Db, HistoryEntry};
 use sonora_playback::{Engine, PlaybackState, Resolver};
@@ -52,17 +52,27 @@ struct TrackLookup {
     gains: HashMap<TrackId, Option<f32>>,
     /// The list currently on screen, in display order.
     visible: Vec<TrackId>,
+    /// The section on screen, so a refresh reloads the page being looked at
+    /// rather than every page that happens to still have state.
+    section: String,
     /// The album page, when one is open. Kept apart from `visible` so opening an
     /// album does not change how the other pages queue.
     album: Option<AlbumPage>,
+    /// The artist page, when one is open. Also kept apart from `visible`.
+    artist: Option<ArtistPage>,
 }
 
-/// The album currently drilled into: which one, whose name heads the page, and
-/// its tracks in album order.
+/// The album currently drilled into, with its tracks in album order.
 #[derive(Clone)]
 struct AlbumPage {
     id: AlbumId,
-    artist: String,
+    order: Vec<TrackId>,
+}
+
+/// The artist currently drilled into, with everything they perform in play order.
+#[derive(Clone)]
+struct ArtistPage {
+    id: ArtistId,
     order: Vec<TrackId>,
 }
 
@@ -204,10 +214,16 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         let weak = weak.clone();
         let lookup = lookup.clone();
         ui.on_section_changed(move |section| {
-            // Leaving the album page forgets the album that was open, so later
-            // refreshes do not keep reloading a page nobody is looking at.
-            if section.as_str() != "album" {
-                lock(&lookup).album = None;
+            // Leaving the album and artist pages forgets them, so later refreshes
+            // do not reload a page nobody is looking at. The two pages point back
+            // at each other, so both survive while either one is open.
+            {
+                let mut lookup = lock(&lookup);
+                if section.as_str() != "album" && section.as_str() != "artist" {
+                    lookup.album = None;
+                    lookup.artist = None;
+                }
+                lookup.section = section.to_string();
             }
             if let Some(ui) = weak.upgrade() {
                 ui.set_section(section);
@@ -712,20 +728,128 @@ fn attach_playback(
         let db = db.clone();
         let handle = handle.clone();
         let lookup = lookup.clone();
-        ui.on_open_album(move |id, title, artist| {
+        ui.on_open_album(move |id| {
             let weak = weak.clone();
             let db = db.clone();
             let handle = handle.clone();
             let lookup = lookup.clone();
-            let title = title.to_string();
-            let artist = artist.to_string();
+            let album_id = id as AlbumId;
             handle.spawn(async move {
-                let tracks = match db.album_tracks(id as AlbumId).await {
-                    Ok(tracks) => tracks,
+                let album = match db.album(album_id).await {
+                    Ok(Some(album)) => album,
+                    Ok(None) => {
+                        let _ = weak.upgrade_in_event_loop(|ui| {
+                            ui.set_status("That album is no longer in the library.".into());
+                        });
+                        return;
+                    }
                     Err(err) => {
-                        log::error!("could not open album {id}: {err}");
+                        log::error!("could not open album {album_id}: {err}");
                         let _ = weak.upgrade_in_event_loop(|ui| {
                             ui.set_status("Could not open that album.".into());
+                        });
+                        return;
+                    }
+                };
+                let tracks = db.album_tracks(album_id).await.unwrap_or_default();
+
+                remember_tracks(&lookup, &tracks);
+                let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
+                let counts = format!("{} tracks · {}", tracks.len(), format_duration(total_ms));
+                let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
+                let rows = track_rows(&tracks);
+                // Coming from an artist page, Back returns there; otherwise Back
+                // leads out to the album list.
+                let back = if lock(&lookup).artist.is_some() {
+                    "artist"
+                } else {
+                    "albums"
+                };
+                {
+                    let mut lookup = lock(&lookup);
+                    lookup.section = "album".to_string();
+                    lookup.album = Some(AlbumPage {
+                        id: album_id,
+                        order,
+                    });
+                }
+
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.set_album_title(album.title.into());
+                    ui.set_album_artist(album.album_artist.into());
+                    ui.set_album_artist_id(saturating_i32(album.album_artist_id as u64));
+                    ui.set_album_meta(counts.into());
+                    ui.set_album_back(back.into());
+                    ui.set_album_tracks(model(rows));
+                    ui.set_section("album".into());
+                });
+            });
+        });
+    }
+
+    {
+        let engine = engine.clone();
+        let lookup = lookup.clone();
+        let weak = weak.clone();
+        ui.on_artist_track_activated(move |id| {
+            let tracks = {
+                let lookup = lock(&lookup);
+                let order = lookup.artist.as_ref().map(|page| page.order.clone());
+                order.and_then(|order| queue_from(&order, id as TrackId))
+            };
+
+            let Some(tracks) = tracks else {
+                return;
+            };
+            if let Err(err) = engine.play_tracks(&tracks) {
+                log::warn!("could not start the artist: {err}");
+                return;
+            }
+            refresh_playback(&weak, &engine, &lookup);
+        });
+    }
+
+    {
+        let engine = engine.clone();
+        let lookup = lookup.clone();
+        let weak = weak.clone();
+        ui.on_play_artist(move || {
+            let tracks = lock(&lookup)
+                .artist
+                .as_ref()
+                .map(|page| page.order.clone())
+                .unwrap_or_default();
+            if tracks.is_empty() {
+                return;
+            }
+            if let Err(err) = engine.play_tracks(&tracks) {
+                log::warn!("could not start the artist: {err}");
+                return;
+            }
+            refresh_playback(&weak, &engine, &lookup);
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_open_artist(move |id, name| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            let name = name.to_string();
+            handle.spawn(async move {
+                let artist_id = id as ArtistId;
+                let albums = db.artist_albums(artist_id).await.unwrap_or_default();
+                let tracks = match db.artist_tracks(artist_id).await {
+                    Ok(tracks) => tracks,
+                    Err(err) => {
+                        log::error!("could not open artist {artist_id}: {err}");
+                        let _ = weak.upgrade_in_event_loop(|ui| {
+                            ui.set_status("Could not open that artist.".into());
                         });
                         return;
                     }
@@ -734,23 +858,37 @@ fn attach_playback(
                 remember_tracks(&lookup, &tracks);
                 let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
                 let meta = format!(
-                    "{artist} · {} tracks · {}",
+                    "{} albums · {} tracks · {}",
+                    albums.len(),
                     tracks.len(),
                     format_duration(total_ms)
                 );
                 let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
+                let album_rows = album_rows(&albums);
                 let rows = track_rows(&tracks);
-                lock(&lookup).album = Some(AlbumPage {
-                    id: id as AlbumId,
-                    artist,
-                    order,
-                });
+                // The album page keeps its state while an artist page is open, so
+                // Back can return to the release the artist was opened from.
+                let back = if lock(&lookup).album.is_some() {
+                    "album"
+                } else {
+                    "albums"
+                };
+                {
+                    let mut lookup = lock(&lookup);
+                    lookup.section = "artist".to_string();
+                    lookup.artist = Some(ArtistPage {
+                        id: artist_id,
+                        order,
+                    });
+                }
 
                 let _ = weak.upgrade_in_event_loop(move |ui| {
-                    ui.set_album_title(title.into());
-                    ui.set_album_meta(meta.into());
-                    ui.set_album_tracks(model(rows));
-                    ui.set_section("album".into());
+                    ui.set_artist_name(name.into());
+                    ui.set_artist_meta(meta.into());
+                    ui.set_artist_back(back.into());
+                    ui.set_artist_albums(model(album_rows));
+                    ui.set_artist_tracks(model(rows));
+                    ui.set_section("artist".into());
                 });
             });
         });
@@ -1005,32 +1143,63 @@ fn refresh_all(
             .map(|(_, path)| path.to_string_lossy().to_string().into())
             .collect();
 
-        // A scan, a rating or a favourite can change the album that is open, so
-        // reload it in the same pass instead of leaving the page stale.
-        let open_album = lock(&lookup).album.clone();
-        let album_page = match open_album {
-            Some(page) => match ctx.db.album_tracks(page.id).await {
+        // A scan, a rating or a favourite can change a page that is open, so reload
+        // the one being looked at in the same pass instead of leaving it stale.
+        let (section, open_album, open_artist) = {
+            let lookup = lock(&lookup);
+            (
+                lookup.section.clone(),
+                lookup.album.clone(),
+                lookup.artist.clone(),
+            )
+        };
+
+        let album_page = match (section.as_str() == "album", open_album) {
+            (true, Some(page)) => match ctx.db.album_tracks(page.id).await {
                 Ok(tracks) => {
                     remember_tracks(&lookup, &tracks);
                     let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
-                    let meta = format!(
-                        "{} · {} tracks · {}",
-                        page.artist,
-                        tracks.len(),
-                        format_duration(total_ms)
-                    );
+                    let counts = format!("{} tracks · {}", tracks.len(), format_duration(total_ms));
                     let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
                     if let Some(open) = lock(&lookup).album.as_mut() {
                         open.order = order;
                     }
-                    Some((track_rows(&tracks), meta))
+                    Some((track_rows(&tracks), counts))
                 }
                 Err(err) => {
                     log::error!("could not refresh the open album: {err}");
                     None
                 }
             },
-            None => None,
+            _ => None,
+        };
+
+        let artist_page = match (section.as_str() == "artist", open_artist) {
+            (true, Some(page)) => {
+                let albums = ctx.db.artist_albums(page.id).await.unwrap_or_default();
+                match ctx.db.artist_tracks(page.id).await {
+                    Ok(tracks) => {
+                        remember_tracks(&lookup, &tracks);
+                        let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
+                        let meta = format!(
+                            "{} albums · {} tracks · {}",
+                            albums.len(),
+                            tracks.len(),
+                            format_duration(total_ms)
+                        );
+                        let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
+                        if let Some(open) = lock(&lookup).artist.as_mut() {
+                            open.order = order;
+                        }
+                        Some((album_rows(&albums), track_rows(&tracks), meta))
+                    }
+                    Err(err) => {
+                        log::error!("could not refresh the open artist: {err}");
+                        None
+                    }
+                }
+            }
+            _ => None,
         };
 
         remember(&lookup, &tracks);
@@ -1055,9 +1224,14 @@ fn refresh_all(
             ui.set_history_tracks(model(history_rows));
             ui.set_albums(model(album_rows));
             ui.set_folders(model(folders));
-            if let Some((rows, meta)) = album_page {
+            if let Some((rows, counts)) = album_page {
                 ui.set_album_tracks(model(rows));
-                ui.set_album_meta(meta.into());
+                ui.set_album_meta(counts.into());
+            }
+            if let Some((albums, rows, meta)) = artist_page {
+                ui.set_artist_albums(model(albums));
+                ui.set_artist_tracks(model(rows));
+                ui.set_artist_meta(meta.into());
             }
         });
     });

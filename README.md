@@ -46,6 +46,8 @@ Sonora is under active development. What works right now:
   actually has, switches the live pipeline to the chosen one and remembers it.
 - Album pages: opening a release lists its tracks in album order and plays the
   whole album with one action.
+- Artist pages: the credit on an album opens everything by that artist, with
+  their albums and tracks and one action that plays them all.
 
 Supported platforms: **Windows**, **Linux** and **Android**. Android is a
 first-class target, but its build harness and touch layout are still being

@@ -1,5 +1,5 @@
 > [!CAUTION]
-> sonora is currently an early work in progress - isn't meant for casual usage, and doesn't meet all the criteria of this readme - [track the status](#status) [or commit history](/commits/main/)
+> sonora is currently an early work in progress - isn't meant for casual usage, and doesn't meet all the criteria of this readme - [track the status](#status) [or commit history](https://github.com/takyon303/sonora/commits/main/)
 
 # this is sonora.
 

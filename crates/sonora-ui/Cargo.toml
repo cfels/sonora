@@ -27,3 +27,6 @@ rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "t
 
 [build-dependencies]
 slint-build = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

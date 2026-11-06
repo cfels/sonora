@@ -105,8 +105,10 @@ Still open:
 - Last.fm (needs a free developer API key): auth, scrobbling with an offline
   queue, now-playing, loved tracks, charts, similar artists, recommendations,
   cached responses.
-- Synced lyrics that follow playback line by line, local `.lrc` precedence over
-  remote results, and lyric editing.
+- Local `.lrc` files beside a track take precedence over remote lyrics: a
+  Fetch checks the sibling file first, and opening the lyrics pane picks it up
+  when nothing is cached yet.
+- Synced lyrics that follow playback line by line, and lyric editing.
 - Discord Rich Presence (hidden while paused, fully disableable): RPC/IPC on
   desktop, and on Android through the Discord Social SDK, which publishes
   presence without account linking when the Discord app is installed and signed

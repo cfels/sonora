@@ -1438,7 +1438,8 @@ fn cover_pixels(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
     Some((thumb.as_raw().clone(), thumb.width(), thumb.height()))
 }
 
-/// Show whatever lyrics the database already has for `track`.
+/// Show whatever lyrics the database already has for `track`. When nothing is
+/// cached yet, a local `.lrc` beside the file is picked up immediately.
 fn load_lyrics(weak: &Weak<AppWindow>, db: &Db, handle: &Handle, track: TrackId) {
     let weak = weak.clone();
     let db = db.clone();
@@ -1453,6 +1454,29 @@ fn load_lyrics(weak: &Weak<AppWindow>, db: &Db, handle: &Handle, track: TrackId)
                 });
             }
             Ok(None) => {
+                // No cached lyrics: a local file still beats a remote fetch prompt.
+                if let Some(view) = db.track(track).await.ok().flatten() {
+                    if let Some((plain, synced)) = local_lyrics(&view.path) {
+                        if let Err(err) = db
+                            .save_lyrics(track, plain.as_deref(), synced.as_deref(), "local")
+                            .await
+                        {
+                            log::warn!("could not store local lyrics for track {track}: {err}");
+                        }
+                        let text = lyrics_text(plain.as_deref(), synced.as_deref());
+                        let status = if synced.is_some() {
+                            "Local lyrics (.lrc)"
+                        } else {
+                            "Local lyrics"
+                        }
+                        .to_string();
+                        let _ = weak.upgrade_in_event_loop(move |ui| {
+                            ui.set_lyrics_text(text.into());
+                            ui.set_lyrics_status(status.into());
+                        });
+                        return;
+                    }
+                }
                 let _ = weak.upgrade_in_event_loop(|ui| {
                     ui.set_lyrics_text("".into());
                     ui.set_lyrics_status("No saved lyrics yet. Press Fetch lyrics.".into());
@@ -1463,7 +1487,8 @@ fn load_lyrics(weak: &Weak<AppWindow>, db: &Db, handle: &Handle, track: TrackId)
     });
 }
 
-/// Ask LRCLIB for lyrics and keep them, so the next open is instant and offline.
+/// Ask for lyrics and keep them. A local `.lrc` beside the file wins over a
+/// remote lookup, so a hand-written or downloaded lyric file always takes effect.
 fn request_lyrics(weak: &Weak<AppWindow>, db: Db, handle: Handle, track: TrackId) {
     let weak = weak.clone();
     handle.spawn(async move {
@@ -1473,6 +1498,27 @@ fn request_lyrics(weak: &Weak<AppWindow>, db: Db, handle: Handle, track: TrackId
             });
             return;
         };
+
+        if let Some((plain, synced)) = local_lyrics(&view.path) {
+            if let Err(err) = db
+                .save_lyrics(track, plain.as_deref(), synced.as_deref(), "local")
+                .await
+            {
+                log::warn!("could not store local lyrics for track {track}: {err}");
+            }
+            let text = lyrics_text(plain.as_deref(), synced.as_deref());
+            let status = if synced.is_some() {
+                "Local lyrics (.lrc)"
+            } else {
+                "Local lyrics"
+            }
+            .to_string();
+            let _ = weak.upgrade_in_event_loop(move |ui| {
+                ui.set_lyrics_text(text.into());
+                ui.set_lyrics_status(status.into());
+            });
+            return;
+        }
 
         let query = sonora_metadata::TrackQuery {
             artist: view
@@ -1533,6 +1579,34 @@ fn request_lyrics(weak: &Weak<AppWindow>, db: Db, handle: Handle, track: TrackId
             }
         }
     });
+}
+
+/// Local `.lrc` file next to the track, taking precedence over remote results.
+/// The whole file is kept as synced text when it carries LRC timestamps; plain
+/// text is derived the same way the display does. A missing or unreadable file
+/// is treated as "no local lyrics", not an error.
+fn local_lyrics(path: &Path) -> Option<(Option<String>, Option<String>)> {
+    let candidate = path.with_extension("lrc");
+    let raw = std::fs::read_to_string(&candidate).ok()?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let synced = if trimmed.contains('[') && trimmed.contains(']') {
+        Some(trimmed.to_string())
+    } else {
+        None
+    };
+    let plain = if synced.is_some() {
+        let text = lyrics_text(None, Some(trimmed));
+        (!text.is_empty()).then_some(text)
+    } else {
+        Some(trimmed.to_string())
+    };
+    if plain.is_none() && synced.is_none() {
+        return None;
+    }
+    Some((plain, synced))
 }
 
 /// Text to display: plain lyrics when LRCLIB has them, otherwise the synced
@@ -1884,6 +1958,40 @@ mod tests {
     fn missing_lyrics_produce_no_text() {
         assert_eq!(lyrics_text(None, None), "");
         assert_eq!(lyrics_text(Some("   "), None), "");
+    }
+
+    #[test]
+    fn local_lyrics_reads_a_sibling_lrc_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let track = dir.path().join("song.flac");
+        std::fs::write(&track, b"audio").unwrap();
+        std::fs::write(
+            dir.path().join("song.lrc"),
+            "[00:01.00] first line\n[00:02.00] second line\n",
+        )
+        .unwrap();
+        let (plain, synced) = local_lyrics(&track).expect("local lyrics");
+        assert!(synced.as_deref().unwrap().contains("[00:01.00]"));
+        assert_eq!(plain.as_deref(), Some("first line\nsecond line"));
+    }
+
+    #[test]
+    fn local_lyrics_treats_untimed_text_as_plain() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let track = dir.path().join("song.mp3");
+        std::fs::write(&track, b"audio").unwrap();
+        std::fs::write(dir.path().join("song.lrc"), "hello\nworld\n").unwrap();
+        let (plain, synced) = local_lyrics(&track).expect("local lyrics");
+        assert_eq!(plain.as_deref(), Some("hello\nworld"));
+        assert_eq!(synced, None);
+    }
+
+    #[test]
+    fn local_lyrics_ignores_a_missing_lrc_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let track = dir.path().join("song.ogg");
+        std::fs::write(&track, b"audio").unwrap();
+        assert!(local_lyrics(&track).is_none());
     }
 
     #[test]

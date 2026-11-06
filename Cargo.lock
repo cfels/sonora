@@ -5234,6 +5234,7 @@ dependencies = [
  "sonora-metadata",
  "sonora-playback",
  "sonora-scan",
+ "tempfile",
  "tokio",
 ]
 

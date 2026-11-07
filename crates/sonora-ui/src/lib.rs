@@ -1635,6 +1635,74 @@ fn lyrics_text(plain: Option<&str>, synced: Option<&str>) -> String {
     lines.join("\n")
 }
 
+/// Timed lines from a synced LRC payload, in playback order. A line with
+/// several timestamps becomes one entry per timestamp; metadata-only lines are
+/// ignored. The moments are in milliseconds from the start of the track.
+fn parse_lrc_timed(synced: &str) -> Vec<(u64, String)> {
+    let mut out = Vec::new();
+    for line in synced.lines() {
+        let mut rest = line.trim_start();
+        let mut times = Vec::new();
+        while rest.starts_with('[') {
+            match rest.find(']') {
+                Some(end) => {
+                    if let Some(ms) = parse_lrc_timestamp(&rest[1..end]) {
+                        times.push(ms);
+                    }
+                    rest = rest[end + 1..].trim_start();
+                }
+                None => break,
+            }
+        }
+        if times.is_empty() {
+            continue;
+        }
+        let text = rest.to_string();
+        for ms in times {
+            out.push((ms, text.clone()));
+        }
+    }
+    out.sort_by_key(|(ms, _)| *ms);
+    out
+}
+
+fn parse_lrc_timestamp(tag: &str) -> Option<u64> {
+    let (mm, rest) = tag.split_once(':')?;
+    if mm.is_empty() || !mm.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let minutes: u64 = mm.parse().ok()?;
+    let (ss, frac_ms) = if let Some((s, f)) = rest.split_once('.') {
+        let sec: u64 = if !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()) {
+            s.parse().ok()?
+        } else {
+            return None;
+        };
+        let digits: String = f.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let frac = match digits.len() {
+            0 => 0,
+            1 => digits.parse::<u64>().ok()? * 100,
+            2 => digits.parse::<u64>().ok()? * 10,
+            _ => digits[..3].parse::<u64>().ok()?,
+        };
+        (sec, frac)
+    } else {
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() {
+            return None;
+        }
+        (digits.parse().ok()?, 0)
+    };
+    Some(minutes * 60_000 + ss * 1000 + frac_ms)
+}
+
+/// Index of the timed line that is active at `position_ms`, or -1 when the
+/// playback position is before the first timed line.
+fn current_lyric_index(lines: &[(u64, String)], position_ms: u64) -> i32 {
+    let next = lines.partition_point(|(ms, _)| *ms <= position_ms);
+    if next == 0 { -1 } else { (next - 1) as i32 }
+}
+
 /// Apply the choices made in the onboarding flow to the stored settings.
 ///
 /// The flow only owns three things: the format preference, the ceiling and the
@@ -2022,5 +2090,131 @@ mod tests {
     fn activating_a_track_that_is_not_on_screen_queues_nothing() {
         assert_eq!(queue_from(&[1, 2], 99), None);
         assert_eq!(queue_from(&[], 1), None);
+    }
+}
+
+
+#[cfg(test)]
+mod timed_lyrics {
+    use super::{
+        current_lyric_index, parse_lrc_timed, parse_lrc_timestamp,
+    };
+
+    #[test]
+    fn current_lyric_index_returns_negative_one_before_first_line() {
+        let lines = vec![
+            (1_000, "first".into()),
+            (2_000, "second".into()),
+        ];
+        assert_eq!(current_lyric_index(&lines, 500), -1);
+        assert_eq!(current_lyric_index(&lines, 0), -1);
+    }
+
+    #[test]
+    fn current_lyric_index_selects_by_position() {
+        let lines = vec![
+            (1_000, "first".into()),
+            (2_000, "second".into()),
+            (3_000, "third".into()),
+        ];
+        assert_eq!(current_lyric_index(&lines, 1_000), 0);
+        assert_eq!(current_lyric_index(&lines, 1_500), 0);
+        assert_eq!(current_lyric_index(&lines, 1_999), 0);
+        assert_eq!(current_lyric_index(&lines, 2_000), 1);
+        assert_eq!(current_lyric_index(&lines, 2_999), 1);
+        assert_eq!(current_lyric_index(&lines, 3_000), 2);
+        assert_eq!(
+            current_lyric_index(&lines, 9_999_999),
+            2,
+        );
+    }
+
+    #[test]
+    fn parse_lrc_timed_orders_and_highlights_by_position() {
+        let input = concat!(
+            "[00:10.00] first line\n",
+            "[00:20.00] second line\n",
+            "[00:30.00] third line\n"
+        );
+        let lines = parse_lrc_timed(input);
+        assert_eq!(
+            lines,
+            vec![
+                (10_000, "first line".into()),
+                (20_000, "second line".into()),
+                (30_000, "third line".into()),
+            ]
+        );
+        assert_eq!(
+            current_lyric_index(&lines, 14_999),
+            0,
+        );
+        assert_eq!(
+            current_lyric_index(&lines, 25_000),
+            1,
+        );
+    }
+
+    #[test]
+    fn parse_lrc_timed_orders_out_of_sequence_timestamps() {
+        let input = concat!(
+            "[00:30.00] late line\n",
+            "[00:05.00] early line\n",
+            "[00:15.00] middle line\n"
+        );
+        let lines = parse_lrc_timed(input);
+        assert_eq!(
+            lines,
+            vec![
+                (5_000, "early line".into()),
+                (15_000, "middle line".into()),
+                (30_000, "late line".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_lrc_timed_rejects_broken_timestamps_and_keeps_readable_lines() {
+        let input = concat!(
+            "[00:10.00] kept\n",
+            "[bad] ignored\n",
+            "[00:20.00] also kept\n",
+            ":10.00\n",
+            "meta\n"
+        );
+        let lines = parse_lrc_timed(input);
+        assert_eq!(
+            lines,
+            vec![
+                (10_000, "kept".into()),
+                (20_000, "also kept".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_lrc_timestamp_handles_millisecond_precision() {
+        assert_eq!(parse_lrc_timestamp("00:01.01"),
+                 Some(1_010),
+        );assert_eq!(
+                parse_lrc_timestamp("00:01.1"),
+                Some(1_100),
+            );assert_eq!(
+                parse_lrc_timestamp("00:01.12345"),
+                Some(1_123),
+            );
+    }
+
+    #[test]
+    fn parse_lrc_timestamp_handles_crlf_lrc() {
+        let input = "[00:10.00] first\r\n[00:20.00] second\r\n";
+        let lines = parse_lrc_timed(input);
+        assert_eq!(
+            lines,
+            vec![
+                (10_000, "first".into()),
+                (20_000, "second".into()),
+            ]
+        );
     }
 }

@@ -59,11 +59,16 @@ Delivered:
 - Custom playlists: name one, add the track you are playing from any row's +
   action, play the list, rename it, take tracks out, and delete it — the
   tracks themselves stay in the library.
+- Smart playlists: a playlist whose tracks are selected by rules (a text
+  filter, favourites only, a star floor and an earliest year) rather than by
+  hand. The rules are stored as a document, the tracks are derived on every
+  read, so rating a track, favouriting it or removing a file changes the list
+  without editing it. Hand edits — adding, removing, reordering — are refused
+  on a smart playlist, and its page edits the rules instead.
 
 Still open:
 
 - Artwork in the rows and on album cards instead of placeholders.
-- Smart playlists with a rule editor, updating as the library changes.
 - MPRIS (Linux) and SMTC (Windows) media controls; Android uses its platform
   media session instead (see the Android track).
 

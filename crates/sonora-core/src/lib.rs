@@ -8,6 +8,7 @@
 pub mod error;
 pub mod events;
 pub mod model;
+pub mod playlists;
 pub mod queue;
 pub mod settings;
 pub mod util;
@@ -18,6 +19,7 @@ pub use model::{
     is_supported_audio, AlbumId, ArtistId, AudioFormat, Device, DeviceId, FolderId, LibraryStats,
     PlaylistId, ScanError, ScanReport, ScannedTrack, TrackId, TrackView,
 };
+pub use playlists::{PlaylistRules, SMART_LIMIT_DEFAULT, SMART_LIMIT_MAX};
 pub use queue::{Queue, QueueSnapshot, RepeatMode};
 pub use settings::{
     ArtworkFormat, ArtworkSettings, FolderTemplate, FormatPreference, FormatTier, Settings,

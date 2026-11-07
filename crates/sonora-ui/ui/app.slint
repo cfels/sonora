@@ -49,6 +49,7 @@ export struct PlaylistRow {
     id: int,
     name: string,
     count: int,
+    smart: bool,
 }
 
 export struct QueueRow {
@@ -209,6 +210,9 @@ component TrackRowItem inherits Rectangle {
     in property <bool> show-index: false;
     // Playlists offer a way to take a track back out; the other lists do not.
     in property <bool> show-remove: false;
+    // A smart playlist refuses hand edits, so its rows must not offer the +
+    // either; hiding the control is honest about what the playlist allows.
+    in property <bool> show-add: true;
 
     callback activated(int);
     callback play-next(int);
@@ -371,7 +375,7 @@ component TrackRowItem inherits Rectangle {
             }
         }
 
-        Rectangle {
+        if root.show-add : Rectangle {
             width: 28px;
             height: 24px;
             border-radius: 6px;
@@ -472,6 +476,7 @@ component TrackList inherits ScrollView {
     in property <[TrackRow]> rows;
     in property <string> empty-message: "";
     in property <bool> show-remove: false;
+    in property <bool> show-add: true;
 
     callback activated(int);
     callback play-next(int);
@@ -496,6 +501,7 @@ component TrackList inherits ScrollView {
             position: index + 1;
             show-index: true;
             show-remove: root.show-remove;
+            show-add: root.show-add;
             activated(id) => { root.activated(id); }
             play-next(id) => { root.play-next(id); }
             enqueue(id) => { root.enqueue(id); }
@@ -539,11 +545,195 @@ component PlaylistCard inherits Rectangle {
             horizontal-stretch: 1;
         }
 
+        if root.playlist.smart : Rectangle {
+            height: 20px;
+            width: 48px;
+            border-radius: 10px;
+            background: Palette.accent-soft;
+
+            Text {
+                text: "Smart";
+                color: Palette.text;
+                font-size: 10px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
         Text {
             text: root.playlist.count == 1 ? "1 track" : "\{root.playlist.count} tracks";
             color: Palette.muted;
             font-size: 12px;
             vertical-alignment: center;
+        }
+    }
+}
+
+// The rules behind a smart playlist. The same block creates one from the
+// Playlists page and edits one on its own page, so the two paths cannot drift.
+// The year is a text field on purpose: a numeric spinner for a rare bound would
+// be a bigger control than the rule it sets.
+component RuleEditor inherits Rectangle {
+    in property <string> heading: "";
+    in property <string> note: "";
+    in property <string> submit-label: "Create smart playlist";
+    in property <bool> show-name: true;
+    in property <string> name: "";
+    in property <string> filter-text: "";
+    in property <bool> favourites: false;
+    in property <int> min-rating: 0;
+    in property <string> year-from: "";
+
+    callback name-edited(string);
+    callback filter-edited(string);
+    callback favourites-toggled(bool);
+    callback rating-changed(int);
+    callback year-edited(string);
+    callback submitted();
+
+    height: rules-layout.preferred-height;
+    border-radius: 8px;
+    background: Palette.panel;
+
+    rules-layout := VerticalLayout {
+        padding: 16px;
+        spacing: 10px;
+
+        Text {
+            text: root.heading;
+            color: Palette.text;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        if root.show-name : LineEdit {
+            text: root.name;
+            placeholder-text: "Smart playlist name";
+            edited(text) => {
+                root.name-edited(text);
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+
+            LineEdit {
+                text: root.filter-text;
+                placeholder-text: "Title, artist or album";
+                edited(text) => {
+                    root.filter-edited(text);
+                }
+                horizontal-stretch: 1;
+            }
+
+            Rectangle {
+                width: 132px;
+                height: 30px;
+                border-radius: 6px;
+                background: root.favourites ? Palette.accent-soft : Palette.panel-hover;
+
+                Text {
+                    text: "Favourites only";
+                    color: root.favourites ? Palette.text : Palette.muted;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                favourite-touch := TouchArea {
+                    clicked => {
+                        root.favourites-toggled(!root.favourites);
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 104px;
+                height: 30px;
+                border-radius: 6px;
+                background: Palette.panel-hover;
+
+                HorizontalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    spacing: 2px;
+
+                    Rectangle {
+                        width: 22px;
+                        height: 22px;
+                        border-radius: 4px;
+                        background: down-touch.has-hover ? Palette.accent-soft : transparent;
+
+                        Text {
+                            text: "−";
+                            color: Palette.text;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        down-touch := TouchArea {
+                            clicked => {
+                                root.rating-changed(max(root.min-rating - 1, 0));
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: root.min-rating == 0 ? "Any ★" : "★\{root.min-rating}";
+                        color: Palette.text;
+                        font-size: 12px;
+                        horizontal-stretch: 1;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        width: 22px;
+                        height: 22px;
+                        border-radius: 4px;
+                        background: up-touch.has-hover ? Palette.accent-soft : transparent;
+
+                        Text {
+                            text: "+";
+                            color: Palette.text;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        up-touch := TouchArea {
+                            clicked => {
+                                root.rating-changed(min(root.min-rating + 1, 5));
+                            }
+                        }
+                    }
+                }
+            }
+
+            LineEdit {
+                width: 92px;
+                text: root.year-from;
+                placeholder-text: "From year";
+                edited(text) => {
+                    root.year-edited(text);
+                }
+            }
+
+            ActionButton {
+                label: root.submit-label;
+                primary: true;
+                clicked => {
+                    root.submitted();
+                }
+            }
+        }
+
+        Text {
+            text: root.note;
+            color: Palette.muted;
+            font-size: 12px;
+            wrap: word-wrap;
         }
     }
 }
@@ -1409,6 +1599,15 @@ export component AppWindow inherits Window {
     // asks twice instead of acting on a single stray click.
     in-out property <bool> playlist-delete-armed: false;
     in-out property <int> playlist-picker-track: 0;
+    // A smart playlist draws its tracks from rules, so its page edits those
+    // instead of offering an order to arrange.
+    in property <bool> playlist-smart: false;
+    in property <string> playlist-rules-summary: "";
+    in-out property <string> smart-name-input: "";
+    in-out property <string> smart-filter-input: "";
+    in-out property <string> smart-year-input: "";
+    in-out property <bool> smart-favourites: false;
+    in-out property <int> smart-min-rating: 0;
 
     in property <bool> playback-available: false;
     in property <string> now-playing-title: "Nothing playing";
@@ -1499,6 +1698,9 @@ export component AppWindow inherits Window {
     callback playlist-track-remove(int);
     callback playlist-add(int, int);
     callback playlist-picker-close();
+    // (name, filter, favourites only, minimum stars, earliest year)
+    callback playlist-smart-create(string, string, bool, int, string);
+    callback playlist-smart-save(string, bool, int, string);
 
     in property <string> folder-hint: "Music";
 
@@ -2329,6 +2531,34 @@ export component AppWindow inherits Window {
                             wrap: word-wrap;
                         }
 
+                        RuleEditor {
+                            heading: "New smart playlist";
+                            note: "A smart playlist fills itself from these rules every time it is opened, so rating, favouriting or adding a track can change it without editing the playlist. Up to 200 tracks.";
+                            name: root.smart-name-input;
+                            filter-text: root.smart-filter-input;
+                            favourites: root.smart-favourites;
+                            min-rating: root.smart-min-rating;
+                            year-from: root.smart-year-input;
+                            name-edited(text) => {
+                                root.smart-name-input = text;
+                            }
+                            filter-edited(text) => {
+                                root.smart-filter-input = text;
+                            }
+                            favourites-toggled(on) => {
+                                root.smart-favourites = on;
+                            }
+                            rating-changed(stars) => {
+                                root.smart-min-rating = stars;
+                            }
+                            year-edited(text) => {
+                                root.smart-year-input = text;
+                            }
+                            submitted() => {
+                                root.playlist-smart-create(root.smart-name-input, root.smart-filter-input, root.smart-favourites, root.smart-min-rating, root.smart-year-input);
+                            }
+                        }
+
                         if root.playlists.length == 0 : EmptyState {
                             message: "No playlists yet. Name one above and press Create.";
                         }
@@ -2424,13 +2654,40 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
+
+                        if root.playlist-smart : RuleEditor {
+                            heading: "Rules";
+                            note: root.playlist-rules-summary;
+                            show-name: false;
+                            submit-label: "Save rules";
+                            filter-text: root.smart-filter-input;
+                            favourites: root.smart-favourites;
+                            min-rating: root.smart-min-rating;
+                            year-from: root.smart-year-input;
+                            filter-edited(text) => {
+                                root.smart-filter-input = text;
+                            }
+                            favourites-toggled(on) => {
+                                root.smart-favourites = on;
+                            }
+                            rating-changed(stars) => {
+                                root.smart-min-rating = stars;
+                            }
+                            year-edited(text) => {
+                                root.smart-year-input = text;
+                            }
+                            submitted() => {
+                                root.playlist-smart-save(root.smart-filter-input, root.smart-favourites, root.smart-min-rating, root.smart-year-input);
+                            }
+                        }
                     }
 
                     TrackList {
                         vertical-stretch: 1;
                         rows: root.playlist-tracks;
-                        show-remove: true;
-                        empty-message: "This playlist is empty. The + on any row adds that track here.";
+                        show-remove: !root.playlist-smart;
+                        show-add: !root.playlist-smart;
+                        empty-message: root.playlist-smart ? "Nothing in the library matches these rules yet." : "This playlist is empty. The + on any row adds that track here.";
                         activated(id) => {
                             root.playlist-track-activated(id);
                         }

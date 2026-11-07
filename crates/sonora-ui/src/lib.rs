@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel, Weak};
+use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel, Weak};
 use sonora_core::{
     format_duration, AlbumId, ArtistId, ArtworkFormat, Event, FolderTemplate, FormatPreference,
     FormatTier, Settings, TrackId, TrackView,
@@ -217,8 +217,19 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         });
     }
 
+    // Timed lyrics live beside the pane: the loader fills them, the playback
+    // poll reads them to move the highlight line by line.
+    let timed_lyrics: TimedLyrics = Arc::new(Mutex::new(Vec::new()));
+
     if let Some(engine) = engine.clone() {
-        wire_lyrics(&ui, weak.clone(), ctx.db.clone(), handle.clone(), engine);
+        wire_lyrics(
+            &ui,
+            weak.clone(),
+            ctx.db.clone(),
+            handle.clone(),
+            engine,
+            timed_lyrics.clone(),
+        );
     }
 
     {
@@ -605,6 +616,7 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
             lookup.clone(),
             ctx.db.clone(),
             handle.clone(),
+            timed_lyrics.clone(),
         );
         let artwork = wire_artwork(weak.clone(), ctx.db.clone(), handle.clone(), engine);
         (playback, artwork)
@@ -669,6 +681,7 @@ fn attach_playback(
     lookup: Arc<Mutex<TrackLookup>>,
     db: Db,
     handle: Handle,
+    timed: TimedLyrics,
 ) -> Timer {
     {
         let engine = engine.clone();
@@ -1018,6 +1031,7 @@ fn attach_playback(
     let timer_engine = engine;
     let timer_db = db;
     let timer_handle = handle;
+    let timer_timed = timed;
     let mut last_track = None;
     // Which track this listening session has already been counted, so pausing
     // and resuming does not inflate the play count.
@@ -1034,6 +1048,9 @@ fn attach_playback(
             last_track = current;
             recorded = None;
             if ui.get_lyrics_open() {
+                *lock(&timer_timed) = Vec::new();
+                ui.set_lyric_lines(lyric_model(&[]));
+                ui.set_lyric_active(-1);
                 ui.set_lyrics_text("".into());
                 ui.set_lyrics_status("New track. Press Fetch lyrics.".into());
             }
@@ -1063,6 +1080,14 @@ fn attach_playback(
         ui.set_duration_ms(saturating_i32(duration));
         ui.set_position_label(format_duration(position as i64).into());
         ui.set_duration_label(format_duration(duration as i64).into());
+
+        // Synced lyrics follow the transport: the line whose timestamp has been
+        // passed is the one shown as current, and -1 before the first line.
+        let active = {
+            let lines = lock(&timer_timed);
+            current_lyric_index(&lines, position)
+        };
+        ui.set_lyric_active(active);
     });
     timer
 }
@@ -1332,12 +1357,20 @@ fn listen_for_events(
 }
 
 /// Wire the lyrics pane: read what is cached, fetch from LRCLIB on demand.
-fn wire_lyrics(ui: &AppWindow, weak: Weak<AppWindow>, db: Db, handle: Handle, engine: Arc<Engine>) {
+fn wire_lyrics(
+    ui: &AppWindow,
+    weak: Weak<AppWindow>,
+    db: Db,
+    handle: Handle,
+    engine: Arc<Engine>,
+    timed: TimedLyrics,
+) {
     {
         let weak = weak.clone();
         let db = db.clone();
         let handle = handle.clone();
         let engine = engine.clone();
+        let timed = timed.clone();
         ui.on_lyrics_toggle(move || {
             let Some(window) = weak.clone().upgrade() else {
                 return;
@@ -1350,7 +1383,7 @@ fn wire_lyrics(ui: &AppWindow, weak: Weak<AppWindow>, db: Db, handle: Handle, en
 
             window.set_queue_open(false);
             match engine.current() {
-                Some(track) => load_lyrics(&weak, &db, &handle, track),
+                Some(track) => load_lyrics(&weak, &db, &handle, track, timed.clone()),
                 None => {
                     window.set_lyrics_text("".into());
                     window.set_lyrics_status("Nothing playing.".into());
@@ -1363,6 +1396,7 @@ fn wire_lyrics(ui: &AppWindow, weak: Weak<AppWindow>, db: Db, handle: Handle, en
         let weak = weak.clone();
         let db = db.clone();
         let handle = handle.clone();
+        let timed = timed.clone();
         ui.on_lyrics_fetch(move || {
             let Some(window) = weak.clone().upgrade() else {
                 return;
@@ -1372,7 +1406,7 @@ fn wire_lyrics(ui: &AppWindow, weak: Weak<AppWindow>, db: Db, handle: Handle, en
                 return;
             };
             window.set_lyrics_status("Fetching from LRCLIB…".into());
-            request_lyrics(&weak, db.clone(), handle.clone(), track);
+            request_lyrics(&weak, db.clone(), handle.clone(), track, timed.clone());
         });
     }
 }
@@ -1440,7 +1474,13 @@ fn cover_pixels(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
 
 /// Show whatever lyrics the database already has for `track`. When nothing is
 /// cached yet, a local `.lrc` beside the file is picked up immediately.
-fn load_lyrics(weak: &Weak<AppWindow>, db: &Db, handle: &Handle, track: TrackId) {
+fn load_lyrics(
+    weak: &Weak<AppWindow>,
+    db: &Db,
+    handle: &Handle,
+    track: TrackId,
+    timed: TimedLyrics,
+) {
     let weak = weak.clone();
     let db = db.clone();
     handle.spawn(async move {
@@ -1448,8 +1488,10 @@ fn load_lyrics(weak: &Weak<AppWindow>, db: &Db, handle: &Handle, track: TrackId)
             Ok(Some(stored)) => {
                 let text = lyrics_text(stored.plain.as_deref(), stored.synced.as_deref());
                 let status = format!("Cached ({})", stored.source);
+                let synced = stored.synced.clone();
+                let timed = timed.clone();
                 let _ = weak.upgrade_in_event_loop(move |ui| {
-                    ui.set_lyrics_text(text.into());
+                    show_lyrics(&ui, &timed, &text, synced.as_deref());
                     ui.set_lyrics_status(status.into());
                 });
             }
@@ -1470,15 +1512,17 @@ fn load_lyrics(weak: &Weak<AppWindow>, db: &Db, handle: &Handle, track: TrackId)
                             "Local lyrics"
                         }
                         .to_string();
+                        let timed = timed.clone();
                         let _ = weak.upgrade_in_event_loop(move |ui| {
-                            ui.set_lyrics_text(text.into());
+                            show_lyrics(&ui, &timed, &text, synced.as_deref());
                             ui.set_lyrics_status(status.into());
                         });
                         return;
                     }
                 }
-                let _ = weak.upgrade_in_event_loop(|ui| {
-                    ui.set_lyrics_text("".into());
+                let timed = timed.clone();
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    show_lyrics(&ui, &timed, "", None);
                     ui.set_lyrics_status("No saved lyrics yet. Press Fetch lyrics.".into());
                 });
             }
@@ -1489,7 +1533,13 @@ fn load_lyrics(weak: &Weak<AppWindow>, db: &Db, handle: &Handle, track: TrackId)
 
 /// Ask for lyrics and keep them. A local `.lrc` beside the file wins over a
 /// remote lookup, so a hand-written or downloaded lyric file always takes effect.
-fn request_lyrics(weak: &Weak<AppWindow>, db: Db, handle: Handle, track: TrackId) {
+fn request_lyrics(
+    weak: &Weak<AppWindow>,
+    db: Db,
+    handle: Handle,
+    track: TrackId,
+    timed: TimedLyrics,
+) {
     let weak = weak.clone();
     handle.spawn(async move {
         let Some(view) = db.track(track).await.ok().flatten() else {
@@ -1513,8 +1563,9 @@ fn request_lyrics(weak: &Weak<AppWindow>, db: Db, handle: Handle, track: TrackId
                 "Local lyrics"
             }
             .to_string();
+            let timed = timed.clone();
             let _ = weak.upgrade_in_event_loop(move |ui| {
-                ui.set_lyrics_text(text.into());
+                show_lyrics(&ui, &timed, &text, synced.as_deref());
                 ui.set_lyrics_status(status.into());
             });
             return;
@@ -1557,8 +1608,10 @@ fn request_lyrics(weak: &Weak<AppWindow>, db: Db, handle: Handle, track: TrackId
                 } else {
                     "Lyrics from LRCLIB".to_string()
                 };
+                let synced = lyrics.synced;
+                let timed = timed.clone();
                 let _ = weak.upgrade_in_event_loop(move |ui| {
-                    ui.set_lyrics_text(text.into());
+                    show_lyrics(&ui, &timed, &text, synced.as_deref());
                     ui.set_lyrics_status(status.into());
                 });
             }
@@ -1635,6 +1688,29 @@ fn lyrics_text(plain: Option<&str>, synced: Option<&str>) -> String {
     lines.join("\n")
 }
 
+/// Timed lines for the track in the pane, shared between the loader (a Tokio
+/// task that replaces them) and the playback poll (which reads them to move the
+/// highlight). A new track replaces the whole vector.
+type TimedLyrics = Arc<Mutex<Vec<(u64, String)>>>;
+
+/// Hand loaded lyrics to the pane. Synced payloads are split into timed lines
+/// the player follows; plain payloads stay one block of text.
+fn show_lyrics(ui: &AppWindow, timed: &TimedLyrics, text: &str, synced: Option<&str>) {
+    let lines = synced.map(parse_lrc_timed).unwrap_or_default();
+    ui.set_lyric_lines(lyric_model(&lines));
+    ui.set_lyric_active(-1);
+    ui.set_lyrics_text(text.into());
+    *lock(timed) = lines;
+}
+
+fn lyric_model(lines: &[(u64, String)]) -> ModelRc<SharedString> {
+    let rows: Vec<SharedString> = lines
+        .iter()
+        .map(|(_, text)| SharedString::from(text.as_str()))
+        .collect();
+    ModelRc::from(std::rc::Rc::new(VecModel::from(rows)))
+}
+
 /// Timed lines from a synced LRC payload, in playback order. A line with
 /// several timestamps becomes one entry per timestamp; metadata-only lines are
 /// ignored. The moments are in milliseconds from the start of the track.
@@ -1700,7 +1776,11 @@ fn parse_lrc_timestamp(tag: &str) -> Option<u64> {
 /// playback position is before the first timed line.
 fn current_lyric_index(lines: &[(u64, String)], position_ms: u64) -> i32 {
     let next = lines.partition_point(|(ms, _)| *ms <= position_ms);
-    if next == 0 { -1 } else { (next - 1) as i32 }
+    if next == 0 {
+        -1
+    } else {
+        (next - 1) as i32
+    }
 }
 
 /// Apply the choices made in the onboarding flow to the stored settings.
@@ -2093,19 +2173,13 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod timed_lyrics {
-    use super::{
-        current_lyric_index, parse_lrc_timed, parse_lrc_timestamp,
-    };
+    use super::{current_lyric_index, parse_lrc_timed, parse_lrc_timestamp};
 
     #[test]
     fn current_lyric_index_returns_negative_one_before_first_line() {
-        let lines = vec![
-            (1_000, "first".into()),
-            (2_000, "second".into()),
-        ];
+        let lines = vec![(1_000, "first".into()), (2_000, "second".into())];
         assert_eq!(current_lyric_index(&lines, 500), -1);
         assert_eq!(current_lyric_index(&lines, 0), -1);
     }
@@ -2123,10 +2197,7 @@ mod timed_lyrics {
         assert_eq!(current_lyric_index(&lines, 2_000), 1);
         assert_eq!(current_lyric_index(&lines, 2_999), 1);
         assert_eq!(current_lyric_index(&lines, 3_000), 2);
-        assert_eq!(
-            current_lyric_index(&lines, 9_999_999),
-            2,
-        );
+        assert_eq!(current_lyric_index(&lines, 9_999_999), 2,);
     }
 
     #[test]
@@ -2145,14 +2216,8 @@ mod timed_lyrics {
                 (30_000, "third line".into()),
             ]
         );
-        assert_eq!(
-            current_lyric_index(&lines, 14_999),
-            0,
-        );
-        assert_eq!(
-            current_lyric_index(&lines, 25_000),
-            1,
-        );
+        assert_eq!(current_lyric_index(&lines, 14_999), 0,);
+        assert_eq!(current_lyric_index(&lines, 25_000), 1,);
     }
 
     #[test]
@@ -2185,24 +2250,15 @@ mod timed_lyrics {
         let lines = parse_lrc_timed(input);
         assert_eq!(
             lines,
-            vec![
-                (10_000, "kept".into()),
-                (20_000, "also kept".into()),
-            ]
+            vec![(10_000, "kept".into()), (20_000, "also kept".into()),]
         );
     }
 
     #[test]
     fn parse_lrc_timestamp_handles_millisecond_precision() {
-        assert_eq!(parse_lrc_timestamp("00:01.01"),
-                 Some(1_010),
-        );assert_eq!(
-                parse_lrc_timestamp("00:01.1"),
-                Some(1_100),
-            );assert_eq!(
-                parse_lrc_timestamp("00:01.12345"),
-                Some(1_123),
-            );
+        assert_eq!(parse_lrc_timestamp("00:01.01"), Some(1_010),);
+        assert_eq!(parse_lrc_timestamp("00:01.1"), Some(1_100),);
+        assert_eq!(parse_lrc_timestamp("00:01.12345"), Some(1_123),);
     }
 
     #[test]
@@ -2211,10 +2267,7 @@ mod timed_lyrics {
         let lines = parse_lrc_timed(input);
         assert_eq!(
             lines,
-            vec![
-                (10_000, "first".into()),
-                (20_000, "second".into()),
-            ]
+            vec![(10_000, "first".into()), (20_000, "second".into()),]
         );
     }
 }

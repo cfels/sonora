@@ -98,6 +98,9 @@ Delivered:
   clears itself when the track changes instead of showing the previous song.
 - Cover art in the transport bar, decoded off the UI thread from the file's
   embedded picture and refreshed whenever playback moves to another track.
+- Synced lyrics follow playback line by line: the pane splits LRC into timed
+  lines and highlights the current one from the transport clock, for LRCLIB
+  results and local `.lrc` files alike.
 
 Still open:
 
@@ -108,7 +111,7 @@ Still open:
 - Local `.lrc` files beside a track take precedence over remote lyrics: a
   Fetch checks the sibling file first, and opening the lyrics pane picks it up
   when nothing is cached yet.
-- Synced lyrics that follow playback line by line, and lyric editing.
+- Lyric editing: hand-syncing a plain lyric, or fixing a bad LRC.
 - Discord Rich Presence (hidden while paused, fully disableable): RPC/IPC on
   desktop, and on Android through the Discord Social SDK, which publishes
   presence without account linking when the Discord app is installed and signed

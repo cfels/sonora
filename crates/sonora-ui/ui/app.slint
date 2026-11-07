@@ -801,6 +801,9 @@ component QueuePanel inherits Rectangle {
 component LyricsPanel inherits Rectangle {
     in property <string> text: "";
     in property <string> status: "";
+    // Synced lyrics arrive as timed lines; the active one follows playback.
+    in property <[string]> lines: [];
+    in property <int> active: -1;
 
     callback close();
     callback fetch();
@@ -846,7 +849,17 @@ component LyricsPanel inherits Rectangle {
         }
 
         ScrollView {
-            Text {
+            if root.lines.length > 0 : VerticalLayout {
+                spacing: 6px;
+                for line[index] in root.lines : Text {
+                    text: line;
+                    color: index == root.active ? Palette.accent : Palette.muted;
+                    font-size: 12px;
+                    font-weight: index == root.active ? 600 : 400;
+                    wrap: word-wrap;
+                }
+            }
+            if root.lines.length == 0 : Text {
                 text: root.text;
                 color: Palette.text;
                 font-size: 12px;
@@ -1129,6 +1142,8 @@ export component AppWindow inherits Window {
     in-out property <bool> lyrics-open: false;
     in property <string> lyrics-text: "";
     in property <string> lyrics-status: "";
+    in property <[string]> lyric-lines: [];
+    in property <int> lyric-active: -1;
     in property <image> artwork;
     in property <int> current-count: 0;
     in property <int> upcoming-count: 0;
@@ -2244,6 +2259,8 @@ export component AppWindow inherits Window {
             if root.lyrics-open : LyricsPanel {
                 text: root.lyrics-text;
                 status: root.lyrics-status;
+                lines: root.lyric-lines;
+                active: root.lyric-active;
                 close() => {
                     root.lyrics-open = false;
                 }

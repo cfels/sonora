@@ -811,6 +811,41 @@ component LyricsPanel inherits Rectangle {
     width: 320px;
     background: Palette.sidebar;
 
+    // Keep the line playback reached in view. Slint has no query for the position
+    // of one repeated child, so the active row reports its own offset and the pane
+    // scrolls until it sits a third of the way down, without passing either end.
+    property <length> active-line-y: 0;
+    property <length> active-line-height: 0;
+
+    function follow-line(index: int, y: length, line-height: length) {
+        if (index != root.active) {
+            return;
+        }
+        root.active-line-y = y;
+        root.active-line-height = line-height;
+        root.follow();
+    }
+
+    function follow() {
+        if (root.active < 0) {
+            return;
+        }
+        lyrics-view.content-y = -max(
+            0px,
+            min(
+                root.active-line-y - (lyrics-view.height - root.active-line-height) / 3,
+                lyrics-view.content-height - lyrics-view.height
+            )
+        );
+    }
+
+    // A lyric that starts over, or goes away, begins at the top again.
+    changed active => {
+        if (active < 0) {
+            lyrics-view.content-y = 0;
+        }
+    }
+
     VerticalLayout {
         padding: 14px;
         spacing: 8px;
@@ -848,15 +883,35 @@ component LyricsPanel inherits Rectangle {
             wrap: word-wrap;
         }
 
-        ScrollView {
+        lyrics-view := ScrollView {
+            // Rows are measured a pass after the line that triggered the follow, so
+            // settle the offset again once the content reaches its real height.
+            changed content-height => {
+                root.follow();
+            }
+            changed height => {
+                root.follow();
+            }
+
             if root.lines.length > 0 : VerticalLayout {
                 spacing: 6px;
                 for line[index] in root.lines : Text {
+                    property <bool> current: index == root.active;
+
                     text: line;
-                    color: index == root.active ? Palette.accent : Palette.muted;
+                    color: current ? Palette.accent : Palette.muted;
                     font-size: 12px;
-                    font-weight: index == root.active ? 600 : 400;
+                    font-weight: current ? 600 : 400;
                     wrap: word-wrap;
+
+                    // Layout owns this row's position; hand it over whenever the row
+                    // moves or playback arrives at it, so the view can follow along.
+                    changed y => {
+                        root.follow-line(index, self.y, self.height);
+                    }
+                    changed current => {
+                        root.follow-line(index, self.y, self.height);
+                    }
                 }
             }
             if root.lines.length == 0 : Text {

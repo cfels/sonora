@@ -45,6 +45,12 @@ export struct AlbumRow {
     meta: string,
 }
 
+export struct PlaylistRow {
+    id: int,
+    name: string,
+    count: int,
+}
+
 export struct QueueRow {
     title: string,
     artist: string,
@@ -201,6 +207,8 @@ component TrackRowItem inherits Rectangle {
     in property <TrackRow> track;
     in property <int> position: 0;
     in property <bool> show-index: false;
+    // Playlists offer a way to take a track back out; the other lists do not.
+    in property <bool> show-remove: false;
 
     callback activated(int);
     callback play-next(int);
@@ -209,6 +217,8 @@ component TrackRowItem inherits Rectangle {
     callback rate(int, int);
     callback open-album(int);
     callback open-artist(int, string);
+    callback add-to-playlist(int, string);
+    callback remove(int);
 
     height: 56px;
     border-radius: 6px;
@@ -365,6 +375,48 @@ component TrackRowItem inherits Rectangle {
             width: 28px;
             height: 24px;
             border-radius: 6px;
+            background: playlist-touch.has-hover ? Palette.accent-soft : transparent;
+
+            Text {
+                text: "+";
+                color: Palette.muted;
+                font-size: 14px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            playlist-touch := TouchArea {
+                clicked => {
+                    root.add-to-playlist(root.track.id, root.track.title);
+                }
+            }
+        }
+
+        if root.show-remove : Rectangle {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            background: remove-touch.has-hover ? Palette.accent-soft : transparent;
+
+            Text {
+                text: "×";
+                color: Palette.muted;
+                font-size: 14px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            remove-touch := TouchArea {
+                clicked => {
+                    root.remove(root.track.id);
+                }
+            }
+        }
+
+        Rectangle {
+            width: 28px;
+            height: 24px;
+            border-radius: 6px;
             background: favourite-touch.has-hover ? Palette.accent-soft : transparent;
 
             Text {
@@ -419,6 +471,7 @@ component TrackRowItem inherits Rectangle {
 component TrackList inherits ScrollView {
     in property <[TrackRow]> rows;
     in property <string> empty-message: "";
+    in property <bool> show-remove: false;
 
     callback activated(int);
     callback play-next(int);
@@ -427,6 +480,8 @@ component TrackList inherits ScrollView {
     callback rate(int, int);
     callback open-album(int);
     callback open-artist(int, string);
+    callback add-to-playlist(int, string);
+    callback remove(int);
 
     VerticalLayout {
         padding: 24px;
@@ -440,6 +495,7 @@ component TrackList inherits ScrollView {
             track: item;
             position: index + 1;
             show-index: true;
+            show-remove: root.show-remove;
             activated(id) => { root.activated(id); }
             play-next(id) => { root.play-next(id); }
             enqueue(id) => { root.enqueue(id); }
@@ -447,6 +503,171 @@ component TrackList inherits ScrollView {
             rate(id, rating) => { root.rate(id, rating); }
             open-album(id) => { root.open-album(id); }
             open-artist(id, name) => { root.open-artist(id, name); }
+            add-to-playlist(id, title) => { root.add-to-playlist(id, title); }
+            remove(id) => { root.remove(id); }
+        }
+    }
+}
+
+// One playlist on the Playlists page: click anywhere to open it.
+component PlaylistCard inherits Rectangle {
+    in property <PlaylistRow> playlist;
+
+    callback opened(int);
+
+    height: 54px;
+    border-radius: 8px;
+    background: touch.has-hover ? Palette.panel-hover : Palette.panel;
+
+    touch := TouchArea {
+        clicked => {
+            root.opened(root.playlist.id);
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 10px;
+
+        Text {
+            text: root.playlist.name;
+            color: Palette.text;
+            font-size: 14px;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+
+        Text {
+            text: root.playlist.count == 1 ? "1 track" : "\{root.playlist.count} tracks";
+            color: Palette.muted;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Choosing which playlist a track joins. Clicks behind it are swallowed by the
+// scrim, so the only ways out are picking one or cancelling.
+component PlaylistPicker inherits Rectangle {
+    in property <[PlaylistRow]> playlists;
+    in property <string> track-title: "";
+
+    callback picked(int);
+    callback dismissed();
+
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: #000000;
+        opacity: 0.55;
+
+        TouchArea {
+            clicked => {
+                root.dismissed();
+            }
+        }
+    }
+
+    Rectangle {
+        width: 380px;
+        height: min(parent.height - 80px, 440px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Palette.stroke;
+        background: Palette.panel;
+
+        // Swallow clicks on the card's own empty space; only the scrim dismisses.
+        TouchArea {
+            clicked => {}
+        }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 10px;
+
+            Text {
+                text: "Add to playlist";
+                color: Palette.text;
+                font-size: 16px;
+                font-weight: 600;
+            }
+
+            Text {
+                text: root.track-title;
+                color: Palette.muted;
+                font-size: 12px;
+                overflow: elide;
+            }
+
+            if root.playlists.length == 0 : Text {
+                text: "No playlists yet. Create one on the Playlists page first.";
+                color: Palette.muted;
+                font-size: 12px;
+                wrap: word-wrap;
+                vertical-stretch: 1;
+            }
+
+            ScrollView {
+                vertical-stretch: 1;
+
+                if root.playlists.length > 0 : VerticalLayout {
+                    spacing: 4px;
+
+                    for playlist in root.playlists : Rectangle {
+                        height: 40px;
+                        border-radius: 6px;
+                        background: pick-touch.has-hover ? Palette.panel-hover : transparent;
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 8px;
+
+                            Text {
+                                text: playlist.name;
+                                color: Palette.text;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+
+                            Text {
+                                text: "\{playlist.count}";
+                                color: Palette.muted;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        pick-touch := TouchArea {
+                            clicked => {
+                                root.picked(playlist.id);
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                ActionButton {
+                    label: "Cancel";
+                    primary: false;
+                    clicked => {
+                        root.dismissed();
+                    }
+                }
+            }
         }
     }
 }
@@ -1177,6 +1398,17 @@ export component AppWindow inherits Window {
     in property <string> artist-meta: "";
     in property <string> artist-back: "albums";
     in property <[string]> folders;
+    in property <[PlaylistRow]> playlists;
+    in property <[TrackRow]> playlist-tracks;
+    in property <string> playlist-title: "";
+    in property <string> playlist-meta: "";
+    in-out property <string> playlist-picker-title: "";
+    in-out property <string> playlist-name-input: "";
+    in-out property <bool> playlist-picker-open: false;
+    // Deleting a playlist takes everything the listener put in it, so the button
+    // asks twice instead of acting on a single stray click.
+    in-out property <bool> playlist-delete-armed: false;
+    in-out property <int> playlist-picker-track: 0;
 
     in property <bool> playback-available: false;
     in property <string> now-playing-title: "Nothing playing";
@@ -1258,12 +1490,29 @@ export component AppWindow inherits Window {
     callback run-onboarding();
     callback lyrics-toggle();
     callback lyrics-fetch();
+    callback playlist-open(int);
+    callback playlist-create(string);
+    callback playlist-rename(string);
+    callback playlist-delete();
+    callback playlist-play();
+    callback playlist-track-activated(int);
+    callback playlist-track-remove(int);
+    callback playlist-add(int, int);
+    callback playlist-picker-close();
 
     in property <string> folder-hint: "Music";
 
     private property <int> bitrate-shown: round(root.settings-bitrate);
     private property <int> cache-shown: round(root.settings-cache-mib);
-    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "history" ? "History" : root.section == "favourites" ? "Favourites" : root.section == "album" ? root.album-title : root.section == "artist" ? root.artist-name : root.section == "settings" ? "Settings" : "Library folders";
+    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "history" ? "History" : root.section == "favourites" ? "Favourites" : root.section == "album" ? root.album-title : root.section == "artist" ? root.artist-name : root.section == "playlists" ? "Playlists" : root.section == "playlist" ? root.playlist-title : root.section == "settings" ? "Settings" : "Library folders";
+
+    // The picker needs the track it is adding; every row hands over its own id and
+    // title, so nothing has to be looked up again.
+    function open-playlist-picker(track: int, title: string) {
+        root.playlist-picker-track = track;
+        root.playlist-picker-title = title;
+        root.playlist-picker-open = true;
+    }
 
     Rectangle {
         VerticalLayout {
@@ -1338,6 +1587,13 @@ export component AppWindow inherits Window {
                         active: root.section == "favourites";
                         clicked => {
                             root.section-changed("favourites");
+                        }
+                    }
+                    NavItem {
+                        label: "Playlists";
+                        active: root.section == "playlists" || root.section == "playlist";
+                        clicked => {
+                            root.section-changed("playlists");
                         }
                     }
                     NavItem {
@@ -1473,6 +1729,9 @@ export component AppWindow inherits Window {
                             }
                             open-album(id) => { root.open-album(id); }
                             open-artist(id, name) => { root.open-artist(id, name); }
+                            add-to-playlist(id, title) => {
+                                root.open-playlist-picker(id, title);
+                            }
                         }
 
                         if root.most-played-tracks.length > 0 : Text {
@@ -1503,6 +1762,9 @@ export component AppWindow inherits Window {
                             }
                             open-album(id) => { root.open-album(id); }
                             open-artist(id, name) => { root.open-artist(id, name); }
+                            add-to-playlist(id, title) => {
+                                root.open-playlist-picker(id, title);
+                            }
                         }
                     }
                 }
@@ -1977,6 +2239,9 @@ export component AppWindow inherits Window {
                     }
                     open-album(id) => { root.open-album(id); }
                     open-artist(id, name) => { root.open-artist(id, name); }
+                    add-to-playlist(id, title) => {
+                        root.open-playlist-picker(id, title);
+                    }
                 }
 
                 // ------------------------------------------------------ history
@@ -2000,6 +2265,9 @@ export component AppWindow inherits Window {
                     }
                     open-album(id) => { root.open-album(id); }
                     open-artist(id, name) => { root.open-artist(id, name); }
+                    add-to-playlist(id, title) => {
+                        root.open-playlist-picker(id, title);
+                    }
                 }
 
                 // --------------------------------------------------- favourites
@@ -2023,6 +2291,170 @@ export component AppWindow inherits Window {
                     }
                     open-album(id) => { root.open-album(id); }
                     open-artist(id, name) => { root.open-artist(id, name); }
+                    add-to-playlist(id, title) => {
+                        root.open-playlist-picker(id, title);
+                    }
+                }
+
+                // ---------------------------------------------------- playlists
+                if root.section == "playlists" : ScrollView {
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 14px;
+
+                        HorizontalLayout {
+                            spacing: 10px;
+
+                            LineEdit {
+                                text: root.playlist-name-input;
+                                placeholder-text: "New playlist name";
+                                edited(text) => {
+                                    root.playlist-name-input = text;
+                                }
+                                horizontal-stretch: 1;
+                            }
+
+                            ActionButton {
+                                label: "Create";
+                                clicked => {
+                                    root.playlist-create(root.playlist-name-input);
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: "Open a playlist to play it, rename it, or take tracks out. The + on any row adds that track to a playlist.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+
+                        if root.playlists.length == 0 : EmptyState {
+                            message: "No playlists yet. Name one above and press Create.";
+                        }
+
+                        for item in root.playlists : PlaylistCard {
+                            playlist: item;
+                            opened(id) => {
+                                root.playlist-open(id);
+                            }
+                        }
+                    }
+                }
+
+                // --------------------------------------------- playlist detail
+                if root.section == "playlist" : VerticalLayout {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        padding: 24px;
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            spacing: 12px;
+
+                            VerticalLayout {
+                                spacing: 4px;
+
+                                Text {
+                                    text: root.playlist-title;
+                                    color: Palette.text;
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    overflow: elide;
+                                }
+
+                                Text {
+                                    text: root.playlist-meta;
+                                    color: Palette.muted;
+                                    font-size: 12px;
+                                }
+                            }
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+
+                            ActionButton {
+                                label: "Back";
+                                clicked => {
+                                    root.section-changed("playlists");
+                                }
+                            }
+
+                            ActionButton {
+                                label: "Play playlist";
+                                primary: true;
+                                clicked => {
+                                    root.playlist-play();
+                                }
+                            }
+
+                            ActionButton {
+                                label: root.playlist-delete-armed ? "Delete for good" : "Delete";
+                                primary: root.playlist-delete-armed;
+                                clicked => {
+                                    if root.playlist-delete-armed {
+                                        root.playlist-delete-armed = false;
+                                        root.playlist-delete();
+                                    } else {
+                                        root.playlist-delete-armed = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 10px;
+
+                            LineEdit {
+                                text: root.playlist-name-input;
+                                placeholder-text: "Playlist name";
+                                edited(text) => {
+                                    root.playlist-name-input = text;
+                                }
+                                horizontal-stretch: 1;
+                            }
+
+                            ActionButton {
+                                label: "Rename";
+                                primary: false;
+                                clicked => {
+                                    root.playlist-rename(root.playlist-name-input);
+                                }
+                            }
+                        }
+                    }
+
+                    TrackList {
+                        vertical-stretch: 1;
+                        rows: root.playlist-tracks;
+                        show-remove: true;
+                        empty-message: "This playlist is empty. The + on any row adds that track here.";
+                        activated(id) => {
+                            root.playlist-track-activated(id);
+                        }
+                        play-next(id) => {
+                            root.play-next-requested(id);
+                        }
+                        enqueue(id) => {
+                            root.enqueue-requested(id);
+                        }
+                        favourite(id, starred) => {
+                            root.favourite-toggled(id, starred);
+                        }
+                        rate(id, rating) => {
+                            root.rating-changed(id, rating);
+                        }
+                        open-album(id) => { root.open-album(id); }
+                        open-artist(id, name) => { root.open-artist(id, name); }
+                        remove(id) => {
+                            root.playlist-track-remove(id);
+                        }
+                        add-to-playlist(id, title) => {
+                            root.open-playlist-picker(id, title);
+                        }
+                    }
                 }
 
                 // ------------------------------------------------------- albums
@@ -2142,6 +2574,9 @@ export component AppWindow inherits Window {
                         }
                         open-album(id) => { root.open-album(id); }
                         open-artist(id, name) => { root.open-artist(id, name); }
+                        add-to-playlist(id, title) => {
+                            root.open-playlist-picker(id, title);
+                        }
                     }
                 }
 
@@ -2238,6 +2673,9 @@ export component AppWindow inherits Window {
                             }
                             open-album(id) => { root.open-album(id); }
                             open-artist(id, name) => { root.open-artist(id, name); }
+                            add-to-playlist(id, title) => {
+                                root.open-playlist-picker(id, title);
+                            }
                         }
                     }
                 }
@@ -2376,6 +2814,22 @@ export component AppWindow inherits Window {
             open-album(id) => { root.open-album(id); }
             open-artist(id, name) => { root.open-artist(id, name); }
         }
+        }
+
+        if root.playlist-picker-open : PlaylistPicker {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+
+            playlists: root.playlists;
+            track-title: root.playlist-picker-title;
+            picked(id) => {
+                root.playlist-add(id, root.playlist-picker-track);
+            }
+            dismissed() => {
+                root.playlist-picker-close();
+            }
         }
 
         if root.onboarding-open : OnboardingOverlay {

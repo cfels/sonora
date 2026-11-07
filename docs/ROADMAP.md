@@ -56,11 +56,14 @@ Delivered:
 - Artist pages: the artist credit on an album opens everything by that
   artist — their albums and every track they perform — with one action that
   plays them all. Back returns to the release the artist was opened from.
+- Custom playlists: name one, add the track you are playing from any row's +
+  action, play the list, rename it, take tracks out, and delete it — the
+  tracks themselves stay in the library.
 
 Still open:
 
 - Artwork in the rows and on album cards instead of placeholders.
-- Custom playlists and smart playlists with a rule editor.
+- Smart playlists with a rule editor, updating as the library changes.
 - MPRIS (Linux) and SMTC (Windows) media controls; Android uses its platform
   media session instead (see the Android track).
 

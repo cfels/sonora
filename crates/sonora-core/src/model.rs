@@ -6,6 +6,7 @@ pub type TrackId = i64;
 pub type AlbumId = i64;
 pub type ArtistId = i64;
 pub type FolderId = i64;
+pub type PlaylistId = i64;
 
 /// Audio containers Sonora is prepared to index and play.
 ///

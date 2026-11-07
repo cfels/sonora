@@ -20,9 +20,9 @@ use std::time::Duration;
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel, Weak};
 use sonora_core::{
     format_duration, AlbumId, ArtistId, ArtworkFormat, Event, FolderTemplate, FormatPreference,
-    FormatTier, Settings, TrackId, TrackView,
+    FormatTier, PlaylistId, Settings, TrackId, TrackView,
 };
-use sonora_db::{AlbumSummary, Db, HistoryEntry};
+use sonora_db::{AlbumSummary, Db, HistoryEntry, PlaylistSummary};
 use sonora_playback::{Engine, PlaybackState, Resolver};
 use sonora_scan::Scanner;
 use tokio::runtime::Handle;
@@ -71,6 +71,8 @@ struct TrackLookup {
     album: Option<AlbumPage>,
     /// The artist page, when one is open. Also kept apart from `visible`.
     artist: Option<ArtistPage>,
+    /// The playlist page, when one is open. Also kept apart from `visible`.
+    playlist: Option<PlaylistPage>,
 }
 
 /// The album currently drilled into, with its tracks in album order.
@@ -84,6 +86,13 @@ struct AlbumPage {
 #[derive(Clone)]
 struct ArtistPage {
     id: ArtistId,
+    order: Vec<TrackId>,
+}
+
+/// The playlist currently open, with its tracks in the listener's order.
+#[derive(Clone)]
+struct PlaylistPage {
+    id: PlaylistId,
     order: Vec<TrackId>,
 }
 
@@ -232,6 +241,17 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         );
     }
 
+    // Playlists work with or without a transport; only playing one needs the
+    // engine, and `wire_playlists` skips those two handlers when it is missing.
+    wire_playlists(
+        &ui,
+        weak.clone(),
+        ctx.db.clone(),
+        handle.clone(),
+        lookup.clone(),
+        engine.clone(),
+    );
+
     {
         let weak = weak.clone();
         let lookup = lookup.clone();
@@ -245,9 +265,19 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                     lookup.album = None;
                     lookup.artist = None;
                 }
+                if section.as_str() != "playlist" {
+                    lookup.playlist = None;
+                }
                 lookup.section = section.to_string();
             }
             if let Some(ui) = weak.upgrade() {
+                // The name field is shared by "create" and "rename", so arriving on
+                // the list page starts it empty instead of pre-filled with the last
+                // playlist that was opened.
+                if section.as_str() == "playlists" {
+                    ui.set_playlist_name_input("".into());
+                }
+                ui.set_playlist_delete_armed(false);
                 ui.set_section(section);
             }
         });
@@ -865,7 +895,7 @@ fn attach_playback(
             let handle = handle.clone();
             let lookup = lookup.clone();
             let name = name.to_string();
-            handle.spawn(async move {
+            handle.clone().spawn(async move {
                 let artist_id = id as ArtistId;
                 let albums = db.artist_albums(artist_id).await.unwrap_or_default();
                 let tracks = match db.artist_tracks(artist_id).await {
@@ -1142,6 +1172,322 @@ fn start_scan(
     });
 }
 
+/// Wire playlists: create, rename, delete, open one, and take tracks in and out.
+///
+/// Each handler edits the database and then reloads only the playlist list and,
+/// when one is open, its tracks — a playlist edit never rebuilds the library.
+fn wire_playlists(
+    ui: &AppWindow,
+    weak: Weak<AppWindow>,
+    db: Db,
+    handle: Handle,
+    lookup: Arc<Mutex<TrackLookup>>,
+    engine: Option<Arc<Engine>>,
+) {
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_playlist_open(move |id| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            handle.spawn(async move {
+                let playlist_id = id as PlaylistId;
+                let Some(summary) = db.playlist(playlist_id).await.ok().flatten() else {
+                    set_status(&weak, "That playlist no longer exists.");
+                    return;
+                };
+                let tracks = match db.playlist_tracks(playlist_id).await {
+                    Ok(tracks) => tracks,
+                    Err(err) => {
+                        log::error!("could not read playlist {playlist_id}: {err}");
+                        set_status(&weak, "Could not open that playlist.");
+                        return;
+                    }
+                };
+
+                remember_tracks(&lookup, &tracks);
+                let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
+                let meta = format!("{} tracks · {}", tracks.len(), format_duration(total_ms));
+                let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
+                let rows = track_rows(&tracks);
+                {
+                    let mut lookup = lock(&lookup);
+                    lookup.section = "playlist".to_string();
+                    lookup.playlist = Some(PlaylistPage {
+                        id: playlist_id,
+                        order,
+                    });
+                }
+
+                let name = summary.name;
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.set_playlist_title(name.clone().into());
+                    ui.set_playlist_meta(meta.into());
+                    ui.set_playlist_name_input(name.into());
+                    ui.set_playlist_tracks(model(rows));
+                    ui.set_playlist_delete_armed(false);
+                    ui.set_section("playlist".into());
+                });
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_playlist_create(move |name| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            let name = name.to_string();
+            handle.clone().spawn(async move {
+                match db.create_playlist(&name).await {
+                    Ok(_) => {
+                        set_status(&weak, format!("Created playlist \"{}\".", name.trim()));
+                        let _ =
+                            weak.upgrade_in_event_loop(|ui| ui.set_playlist_name_input("".into()));
+                        refresh_playlists(&weak, &db, &handle, &lookup);
+                    }
+                    Err(err) => {
+                        log::warn!("could not create a playlist: {err}");
+                        set_status(&weak, "A playlist needs a name.");
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_playlist_rename(move |name| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            let name = name.to_string();
+            handle.clone().spawn(async move {
+                let Some(playlist) = lock(&lookup).playlist.clone() else {
+                    set_status(&weak, "Open a playlist before renaming one.");
+                    return;
+                };
+                match db.rename_playlist(playlist.id, &name).await {
+                    Ok(()) => {
+                        set_status(&weak, format!("Renamed to \"{}\".", name.trim()));
+                        refresh_playlists(&weak, &db, &handle, &lookup);
+                    }
+                    Err(err) => {
+                        log::warn!("could not rename playlist {}: {err}", playlist.id);
+                        set_status(&weak, "A playlist needs a name.");
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_playlist_delete(move || {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            handle.clone().spawn(async move {
+                let Some(playlist) = lock(&lookup).playlist.clone() else {
+                    return;
+                };
+                match db.delete_playlist(playlist.id).await {
+                    Ok(()) => {
+                        {
+                            let mut lookup = lock(&lookup);
+                            lookup.playlist = None;
+                            lookup.section = "playlists".to_string();
+                        }
+                        set_status(&weak, "Playlist deleted. Its tracks stay in the library.");
+                        let _ = weak.upgrade_in_event_loop(|ui| ui.set_section("playlists".into()));
+                        refresh_playlists(&weak, &db, &handle, &lookup);
+                    }
+                    Err(err) => {
+                        log::error!("could not delete playlist {}: {err}", playlist.id);
+                        set_status(&weak, "Could not delete that playlist.");
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_playlist_track_remove(move |track| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            handle.clone().spawn(async move {
+                let Some(playlist) = lock(&lookup).playlist.clone() else {
+                    return;
+                };
+                match db.remove_from_playlist(playlist.id, track as TrackId).await {
+                    Ok(true) => set_status(&weak, "Removed from the playlist."),
+                    Ok(false) => set_status(&weak, "That track was not in the playlist."),
+                    Err(err) => {
+                        log::error!("could not remove track {track}: {err}");
+                        set_status(&weak, "Could not remove that track.");
+                    }
+                }
+                refresh_playlists(&weak, &db, &handle, &lookup);
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_playlist_add(move |playlist, track| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            handle.clone().spawn(async move {
+                let playlist_id = playlist as PlaylistId;
+                let track_id = track as TrackId;
+                match db.add_to_playlist(playlist_id, track_id).await {
+                    Ok(true) => set_status(&weak, "Added to the playlist."),
+                    Ok(false) => set_status(&weak, "That track is already in that playlist."),
+                    Err(err) => {
+                        log::error!(
+                            "could not add track {track_id} to playlist {playlist_id}: {err}"
+                        );
+                        set_status(&weak, "Could not add that track.");
+                    }
+                }
+                let _ = weak.upgrade_in_event_loop(|ui| ui.set_playlist_picker_open(false));
+                refresh_playlists(&weak, &db, &handle, &lookup);
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        ui.on_playlist_picker_close(move || {
+            let _ = weak.upgrade_in_event_loop(|ui| ui.set_playlist_picker_open(false));
+        });
+    }
+
+    if let Some(engine) = engine {
+        {
+            let engine = engine.clone();
+            let lookup = lookup.clone();
+            let weak = weak.clone();
+            ui.on_playlist_play(move || {
+                let tracks = lock(&lookup)
+                    .playlist
+                    .as_ref()
+                    .map(|page| page.order.clone())
+                    .unwrap_or_default();
+                if tracks.is_empty() {
+                    return;
+                }
+                if let Err(err) = engine.play_tracks(&tracks) {
+                    log::warn!("could not start the playlist: {err}");
+                    return;
+                }
+                refresh_playback(&weak, &engine, &lookup);
+            });
+        }
+
+        {
+            let engine = engine.clone();
+            let lookup = lookup.clone();
+            let weak = weak.clone();
+            ui.on_playlist_track_activated(move |id| {
+                let tracks = {
+                    let lookup = lock(&lookup);
+                    let order = lookup.playlist.as_ref().map(|page| page.order.clone());
+                    order.and_then(|order| queue_from(&order, id as TrackId))
+                };
+
+                let Some(tracks) = tracks else {
+                    return;
+                };
+                if let Err(err) = engine.play_tracks(&tracks) {
+                    log::warn!("could not start the playlist: {err}");
+                    return;
+                }
+                refresh_playback(&weak, &engine, &lookup);
+            });
+        }
+    }
+}
+
+/// Reload the playlist list, and the open playlist's tracks when there is one.
+fn refresh_playlists(
+    weak: &Weak<AppWindow>,
+    db: &Db,
+    handle: &Handle,
+    lookup: &Arc<Mutex<TrackLookup>>,
+) {
+    let weak = weak.clone();
+    let db = db.clone();
+    let lookup = lookup.clone();
+    handle.spawn(async move {
+        let playlists = match db.playlists().await {
+            Ok(playlists) => playlists,
+            Err(err) => {
+                log::error!("could not read playlists: {err}");
+                return;
+            }
+        };
+        let rows = playlist_rows(&playlists);
+        let open = lock(&lookup).playlist.clone();
+        let page = match open {
+            Some(page) => {
+                let tracks = db.playlist_tracks(page.id).await.unwrap_or_default();
+                remember_tracks(&lookup, &tracks);
+                let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
+                let name = playlists
+                    .iter()
+                    .find(|playlist| playlist.id == page.id)
+                    .map(|playlist| playlist.name.clone())
+                    .unwrap_or_default();
+                let meta = format!("{} tracks · {}", tracks.len(), format_duration(total_ms));
+                let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
+                if let Some(open) = lock(&lookup).playlist.as_mut() {
+                    open.order = order;
+                }
+                Some((name, meta, track_rows(&tracks)))
+            }
+            None => None,
+        };
+
+        let _ = weak.upgrade_in_event_loop(move |ui| {
+            ui.set_playlists(model(rows));
+            if let Some((name, meta, tracks)) = page {
+                ui.set_playlist_title(name.into());
+                ui.set_playlist_meta(meta.into());
+                ui.set_playlist_tracks(model(tracks));
+            }
+        });
+    });
+}
+
 fn refresh_all(
     weak: Weak<AppWindow>,
     ctx: Arc<AppContext>,
@@ -1179,14 +1525,17 @@ fn refresh_all(
             .map(|(_, path)| path.to_string_lossy().to_string().into())
             .collect();
 
+        let playlists = ctx.db.playlists().await.unwrap_or_default();
+
         // A scan, a rating or a favourite can change a page that is open, so reload
         // the one being looked at in the same pass instead of leaving it stale.
-        let (section, open_album, open_artist) = {
+        let (section, open_album, open_artist, open_playlist) = {
             let lookup = lock(&lookup);
             (
                 lookup.section.clone(),
                 lookup.album.clone(),
                 lookup.artist.clone(),
+                lookup.playlist.clone(),
             )
         };
 
@@ -1238,6 +1587,31 @@ fn refresh_all(
             _ => None,
         };
 
+        let playlist_page = match (section.as_str() == "playlist", open_playlist) {
+            (true, Some(page)) => match ctx.db.playlist_tracks(page.id).await {
+                Ok(tracks) => {
+                    remember_tracks(&lookup, &tracks);
+                    let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
+                    let name = playlists
+                        .iter()
+                        .find(|playlist| playlist.id == page.id)
+                        .map(|playlist| playlist.name.clone())
+                        .unwrap_or_default();
+                    let meta = format!("{} tracks · {}", tracks.len(), format_duration(total_ms));
+                    let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
+                    if let Some(open) = lock(&lookup).playlist.as_mut() {
+                        open.order = order;
+                    }
+                    Some((name, meta, track_rows(&tracks)))
+                }
+                Err(err) => {
+                    log::error!("could not refresh the open playlist: {err}");
+                    None
+                }
+            },
+            _ => None,
+        };
+
         remember(&lookup, &tracks);
 
         let recent_rows = track_rows(&recent);
@@ -1260,6 +1634,12 @@ fn refresh_all(
             ui.set_history_tracks(model(history_rows));
             ui.set_albums(model(album_rows));
             ui.set_folders(model(folders));
+            ui.set_playlists(model(playlist_rows(&playlists)));
+            if let Some((name, meta, rows)) = playlist_page {
+                ui.set_playlist_title(name.into());
+                ui.set_playlist_meta(meta.into());
+                ui.set_playlist_tracks(model(rows));
+            }
             if let Some((rows, counts)) = album_page {
                 ui.set_album_tracks(model(rows));
                 ui.set_album_meta(counts.into());
@@ -1975,6 +2355,17 @@ fn saturating_i32(value: u64) -> i32 {
 /// keeps the reference off the async threads.
 fn model<T: Clone + 'static>(items: Vec<T>) -> ModelRc<T> {
     ModelRc::from(std::rc::Rc::new(VecModel::from(items)))
+}
+
+fn playlist_rows(playlists: &[PlaylistSummary]) -> Vec<PlaylistRow> {
+    playlists
+        .iter()
+        .map(|playlist| PlaylistRow {
+            id: saturating_i32(playlist.id as u64),
+            name: playlist.name.clone().into(),
+            count: saturating_i32(playlist.track_count as u64),
+        })
+        .collect()
 }
 
 fn track_rows(tracks: &[TrackView]) -> Vec<TrackRow> {

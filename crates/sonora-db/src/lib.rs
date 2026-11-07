@@ -8,8 +8,8 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use sonora_core::{
-    sort_key, AlbumId, ArtistId, Error, FolderId, LibraryStats, Result, ScanReport, ScannedTrack,
-    Settings, TrackId, TrackView, QUEUE_KEY, SETTINGS_KEY,
+    sort_key, AlbumId, ArtistId, Error, FolderId, LibraryStats, PlaylistId, Result, ScanReport,
+    ScannedTrack, Settings, TrackId, TrackView, QUEUE_KEY, SETTINGS_KEY,
 };
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePool, SqlitePoolOptions,
@@ -291,6 +291,189 @@ impl Db {
             .await
             .db()?;
         Ok(rows.iter().map(map_track).collect())
+    }
+
+    // --------------------------------------------------------------- playlists
+
+    /// Every playlist, alphabetically, with how many tracks each holds right now.
+    pub async fn playlists(&self) -> Result<Vec<PlaylistSummary>> {
+        let rows = sqlx::query(
+            "SELECT p.id, p.name, COUNT(pt.track_id) AS track_count
+             FROM playlists p
+             LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+             GROUP BY p.id, p.name
+             ORDER BY p.name COLLATE NOCASE, p.id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .db()?;
+        Ok(rows.iter().map(map_playlist).collect())
+    }
+
+    pub async fn playlist(&self, id: PlaylistId) -> Result<Option<PlaylistSummary>> {
+        let row = sqlx::query(
+            "SELECT p.id, p.name, COUNT(pt.track_id) AS track_count
+             FROM playlists p
+             LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+             WHERE p.id = ?1
+             GROUP BY p.id, p.name",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .db()?;
+        Ok(row.as_ref().map(map_playlist))
+    }
+
+    /// Make a playlist with `name`. Surrounding space is dropped, and a name that
+    /// is only space is refused rather than stored as a playlist nobody can find.
+    pub async fn create_playlist(&self, name: &str) -> Result<PlaylistId> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(Error::Other("a playlist needs a name".into()));
+        }
+        let result = sqlx::query("INSERT INTO playlists (name, created_at) VALUES (?1, ?2)")
+            .bind(name)
+            .bind(now())
+            .execute(&self.pool)
+            .await
+            .db()?;
+        Ok(result.last_insert_rowid())
+    }
+
+    pub async fn rename_playlist(&self, id: PlaylistId, name: &str) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(Error::Other("a playlist needs a name".into()));
+        }
+        let result = sqlx::query("UPDATE playlists SET name = ?2 WHERE id = ?1")
+            .bind(id)
+            .bind(name)
+            .execute(&self.pool)
+            .await
+            .db()?;
+        if result.rows_affected() == 0 {
+            return Err(Error::Other(format!("no playlist {id}")));
+        }
+        Ok(())
+    }
+
+    /// Remove a playlist; its entries go with it, the tracks themselves stay.
+    pub async fn delete_playlist(&self, id: PlaylistId) -> Result<()> {
+        sqlx::query("DELETE FROM playlists WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .db()?;
+        Ok(())
+    }
+
+    /// A playlist's tracks in the order the listener arranged them.
+    pub async fn playlist_tracks(&self, id: PlaylistId) -> Result<Vec<TrackView>> {
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} {TRACK_FROM}
+             WHERE t.id IN (SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1)
+             ORDER BY (SELECT position FROM playlist_tracks pt
+                       WHERE pt.playlist_id = ?1 AND pt.track_id = t.id), t.title"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(id)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_track).collect())
+    }
+
+    /// Append a track. Adding the same track twice is a no-op, so the answer says
+    /// whether the playlist actually grew.
+    pub async fn add_to_playlist(&self, id: PlaylistId, track: TrackId) -> Result<bool> {
+        let next: i64 = sqlx::query(
+            "SELECT COALESCE(MAX(position) + 1, 0) FROM playlist_tracks WHERE playlist_id = ?1",
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .db()?
+        .get::<i64, _>(0);
+        let result = sqlx::query(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position, added_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (playlist_id, track_id) DO NOTHING",
+        )
+        .bind(id)
+        .bind(track)
+        .bind(next)
+        .bind(now())
+        .execute(&self.pool)
+        .await
+        .db()?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn remove_from_playlist(&self, id: PlaylistId, track: TrackId) -> Result<bool> {
+        let removed =
+            sqlx::query("DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2")
+                .bind(id)
+                .bind(track)
+                .execute(&self.pool)
+                .await
+                .db()?
+                .rows_affected()
+                > 0;
+        if removed {
+            // Close the gap so positions stay dense and the next move can be
+            // expressed as a plain index.
+            let order = self.playlist_order(id).await?;
+            self.write_playlist_order(id, &order).await?;
+        }
+        Ok(removed)
+    }
+
+    /// Move the entry at `from` so it sits at `to`, shifting the entries between.
+    pub async fn move_playlist_track(&self, id: PlaylistId, from: i64, to: i64) -> Result<()> {
+        let mut order = self.playlist_order(id).await?;
+        let len = order.len() as i64;
+        if !(0..len).contains(&from) || !(0..len).contains(&to) {
+            return Err(Error::Other(format!(
+                "playlist {id} has no entry {}",
+                if (0..len).contains(&from) { to } else { from }
+            )));
+        }
+        if from == to {
+            return Ok(());
+        }
+        let moved = order.remove(from as usize);
+        order.insert(to as usize, moved);
+        self.write_playlist_order(id, &order).await
+    }
+
+    async fn playlist_order(&self, id: PlaylistId) -> Result<Vec<TrackId>> {
+        let rows = sqlx::query(
+            "SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1
+             ORDER BY position, added_at",
+        )
+        .bind(id)
+        .fetch_all(&self.pool)
+        .await
+        .db()?;
+        Ok(rows.iter().map(|row| row.get("track_id")).collect())
+    }
+
+    async fn write_playlist_order(&self, id: PlaylistId, order: &[TrackId]) -> Result<()> {
+        let mut tx = self.pool.begin().await.db()?;
+        for (position, track) in order.iter().enumerate() {
+            sqlx::query(
+                "UPDATE playlist_tracks SET position = ?3
+                 WHERE playlist_id = ?1 AND track_id = ?2",
+            )
+            .bind(id)
+            .bind(track)
+            .bind(position as i64)
+            .execute(&mut *tx)
+            .await
+            .db()?;
+        }
+        tx.commit().await.db()
     }
 
     // ---------------------------------------------------------------- activity
@@ -906,6 +1089,14 @@ pub struct AlbumSummary {
     pub duration_ms: i64,
 }
 
+/// One row on the Playlists page: a name and how much is in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistSummary {
+    pub id: PlaylistId,
+    pub name: String,
+    pub track_count: i64,
+}
+
 /// One row on the History page: a play event plus the track it refers to.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HistoryEntry {
@@ -932,6 +1123,14 @@ fn map_album(row: &SqliteRow) -> AlbumSummary {
         year: row.try_get::<Option<i64>, _>("year").unwrap_or(None),
         track_count: row.get("track_count"),
         duration_ms: row.get("duration_ms"),
+    }
+}
+
+fn map_playlist(row: &SqliteRow) -> PlaylistSummary {
+    PlaylistSummary {
+        id: row.get("id"),
+        name: row.get("name"),
+        track_count: row.get("track_count"),
     }
 }
 
@@ -1610,6 +1809,134 @@ mod tests {
             other => panic!("expected an import, got {other:?}"),
         };
         (id(&outcomes[0]), id(&outcomes[1]))
+    }
+
+    #[tokio::test]
+    async fn playlists_keep_their_own_order() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, second) = seed_two_tracks(&db).await;
+
+        let morning = db.create_playlist("  Morning  ").await.unwrap();
+        let night = db.create_playlist("Night").await.unwrap();
+        assert_eq!(db.playlist(morning).await.unwrap().unwrap().name, "Morning");
+
+        // Appended in the order added, and adding one twice changes nothing.
+        assert!(db.add_to_playlist(morning, second).await.unwrap());
+        assert!(db.add_to_playlist(morning, first).await.unwrap());
+        assert!(!db.add_to_playlist(morning, first).await.unwrap());
+        assert!(db.add_to_playlist(night, first).await.unwrap());
+
+        let order: Vec<TrackId> = db
+            .playlist_tracks(morning)
+            .await
+            .unwrap()
+            .iter()
+            .map(|track| track.id)
+            .collect();
+        assert_eq!(order, vec![second, first]);
+
+        // Each playlist counts only its own tracks.
+        let summaries = db.playlists().await.unwrap();
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].name, "Morning");
+        assert_eq!(summaries[0].track_count, 2);
+        assert_eq!(summaries[1].track_count, 1);
+
+        // Removing the middle entry closes the gap it leaves behind.
+        assert!(db.remove_from_playlist(morning, second).await.unwrap());
+        assert!(!db.remove_from_playlist(morning, second).await.unwrap());
+        assert_eq!(db.playlist_tracks(morning).await.unwrap().len(), 1);
+        assert!(db.add_to_playlist(morning, second).await.unwrap());
+        let order: Vec<TrackId> = db
+            .playlist_tracks(morning)
+            .await
+            .unwrap()
+            .iter()
+            .map(|track| track.id)
+            .collect();
+        assert_eq!(order, vec![first, second]);
+    }
+
+    #[tokio::test]
+    async fn playlist_tracks_move_and_refuse_bad_indexes() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, second) = seed_two_tracks(&db).await;
+        let folder = db.add_folder(Path::new("/more")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let third = match db
+            .upsert_scanned(
+                folder,
+                run,
+                &[track(
+                    "/more/c.mp3",
+                    "Roygbiv",
+                    "Boards of Canada",
+                    "MHTRTC",
+                )],
+            )
+            .await
+            .unwrap()[0]
+        {
+            UpsertOutcome::Imported(id) => id,
+            other => panic!("expected an import, got {other:?}"),
+        };
+
+        let list = db.create_playlist("Mix").await.unwrap();
+        for id in [first, second, third] {
+            db.add_to_playlist(list, id).await.unwrap();
+        }
+
+        db.move_playlist_track(list, 2, 0).await.unwrap();
+        let order: Vec<TrackId> = db
+            .playlist_tracks(list)
+            .await
+            .unwrap()
+            .iter()
+            .map(|track| track.id)
+            .collect();
+        assert_eq!(order, vec![third, first, second]);
+
+        db.move_playlist_track(list, 0, 2).await.unwrap();
+        let order: Vec<TrackId> = db
+            .playlist_tracks(list)
+            .await
+            .unwrap()
+            .iter()
+            .map(|track| track.id)
+            .collect();
+        assert_eq!(order, vec![first, second, third]);
+
+        // Out-of-range moves are refused instead of silently reordering.
+        assert!(db.move_playlist_track(list, 0, 3).await.is_err());
+        assert!(db.move_playlist_track(list, -1, 0).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn deleting_a_playlist_keeps_the_tracks() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, _) = seed_two_tracks(&db).await;
+        let list = db.create_playlist("Temporary").await.unwrap();
+        db.add_to_playlist(list, first).await.unwrap();
+
+        db.delete_playlist(list).await.unwrap();
+
+        assert!(db.playlist(list).await.unwrap().is_none());
+        assert!(db.playlists().await.unwrap().is_empty());
+        assert!(db.playlist_tracks(list).await.unwrap().is_empty());
+        assert_eq!(db.stats().await.unwrap().tracks, 2);
+    }
+
+    #[tokio::test]
+    async fn renaming_needs_a_real_name() {
+        let db = Db::open_in_memory().await.unwrap();
+        let list = db.create_playlist("Draft").await.unwrap();
+
+        db.rename_playlist(list, " Finished ").await.unwrap();
+        assert_eq!(db.playlist(list).await.unwrap().unwrap().name, "Finished");
+
+        assert!(db.create_playlist("   ").await.is_err());
+        assert!(db.rename_playlist(list, "").await.is_err());
+        assert_eq!(db.playlist(list).await.unwrap().unwrap().name, "Finished");
     }
 
     #[tokio::test]

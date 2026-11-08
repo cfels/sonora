@@ -748,7 +748,7 @@ component TrackRowItem inherits Rectangle {
             }
         }
 
-        if root.show-add: Rectangle {
+        if root.show-add : Rectangle {
             width: 28px;
             height: 24px;
             border-radius: 6px;
@@ -927,7 +927,7 @@ component PlaylistCard inherits Rectangle {
             horizontal-stretch: 1;
         }
 
-        if root.playlist.smart: Rectangle {
+        if root.playlist.smart : Rectangle {
             height: 20px;
             width: 48px;
             border-radius: 10px;
@@ -978,7 +978,7 @@ component RuleEditor inherits Rectangle {
     background: Palette.panel;
 
     rules-layout := VerticalLayout {
-        alignment: start;
+
         padding: 16px;
         spacing: 10px;
 
@@ -989,8 +989,9 @@ component RuleEditor inherits Rectangle {
             font-weight: 600;
         }
 
-        if root.show-name: LineEdit {
-            text: root.name;
+
+        if root.show-name : LineEdit {
+        text: root.name;
             placeholder-text: "Smart playlist name";
             edited(text) => {
                 root.name-edited(text);
@@ -3613,10 +3614,39 @@ export component AppWindow inherits Window {
                     padding: 24px;
                     spacing: 14px;
 
-                    if root.albums.length == 0: EmptyState {
-                        message: "Albums appear here once tracks with album tags are indexed.";
-                    }
 
+                        RuleEditor {
+                            heading: "New smart playlist";
+                            note: "A smart playlist fills itself from these rules every time it is opened, so rating, favouriting or adding a track can change it without editing the playlist. Up to 200 tracks.";
+                            name: root.smart-name-input;
+                            filter-text: root.smart-filter-input;
+                            favourites: root.smart-favourites;
+                            min-rating: root.smart-min-rating;
+                            year-from: root.smart-year-input;
+                            name-edited(text) => {
+                                root.smart-name-input = text;
+                            }
+                            filter-edited(text) => {
+                                root.smart-filter-input = text;
+                            }
+                            favourites-toggled(on) => {
+                                root.smart-favourites = on;
+                            }
+                            rating-changed(stars) => {
+                                root.smart-min-rating = stars;
+                            }
+                            year-edited(text) => {
+                                root.smart-year-input = text;
+                            }
+                            submitted() => {
+                                root.playlist-smart-create(root.smart-name-input, root.smart-filter-input, root.smart-favourites, root.smart-min-rating, root.smart-year-input);
+                            }
+                        }
+
+                        if root.playlists.length == 0 : EmptyState {
+                            message: "No playlists yet. Name one above and press Create.";
+                        }
+                        
                     for item in root.albums: AlbumCard {
                         album: item;
                         opened(id) => { root.open-album(id); }
@@ -3684,6 +3714,65 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
+
+                        if root.playlist-smart : RuleEditor {
+                            heading: "Rules";
+                            note: root.playlist-rules-summary;
+                            show-name: false;
+                            submit-label: "Save rules";
+                            filter-text: root.smart-filter-input;
+                            favourites: root.smart-favourites;
+                            min-rating: root.smart-min-rating;
+                            year-from: root.smart-year-input;
+                            filter-edited(text) => {
+                                root.smart-filter-input = text;
+                            }
+                            favourites-toggled(on) => {
+                                root.smart-favourites = on;
+                            }
+                            rating-changed(stars) => {
+                                root.smart-min-rating = stars;
+                            }
+                            year-edited(text) => {
+                                root.smart-year-input = text;
+                            }
+                            submitted() => {
+                                root.playlist-smart-save(root.smart-filter-input, root.smart-favourites, root.smart-min-rating, root.smart-year-input);
+                            }
+                        }
+                    }
+
+                    TrackList {
+                        vertical-stretch: 1;
+                        rows: root.playlist-tracks;
+                        show-remove: !root.playlist-smart;
+                        show-add: !root.playlist-smart;
+                        empty-message: root.playlist-smart ? "Nothing in the library matches these rules yet." : "This playlist is empty. The + on any row adds that track here.";
+                        activated(id) => {
+                            root.playlist-track-activated(id);
+                        }
+                        play-next(id) => {
+                            root.play-next-requested(id);
+                        }
+                        enqueue(id) => {
+                            root.enqueue-requested(id);
+                        }
+                        favourite(id, starred) => {
+                            root.favourite-toggled(id, starred);
+                        }
+                        rate(id, rating) => {
+                            root.rating-changed(id, rating);
+                        }
+                        open-album(id) => { root.open-album(id); }
+                        open-artist(id, name) => { root.open-artist(id, name); }
+                        remove(id) => {
+                            root.playlist-track-remove(id);
+                        }
+                        add-to-playlist(id, title) => {
+                            root.open-playlist-picker(id, title);
+                        }
+                    }
+                }
 
                         Rectangle {
                             horizontal-stretch: 1;

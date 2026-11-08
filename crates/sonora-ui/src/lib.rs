@@ -20,12 +20,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
-
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel, Weak};
 use sonora_core::{
-    format_duration, AlbumId, AppearanceSettings, ArtistId, ArtworkFormat, Event, FolderTemplate,
-    FormatPreference, FormatTier, HistoryRetention, PlaylistId, PlaylistRules, Settings, TrackId,
-    TrackView, SMART_LIMIT_DEFAULT,
+    format_duration, AlbumId, ArtistId, ArtworkFormat, Event, FolderTemplate, FormatPreference,
+    FormatTier, PlaylistId, PlaylistRules, Settings, TrackId, TrackView, SMART_LIMIT_DEFAULT,
 };
 use sonora_db::{AlbumSummary, Db, HistoryEntry, PlaylistSummary};
 use sonora_playback::{Engine, PlaybackState, Resolver};

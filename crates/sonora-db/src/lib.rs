@@ -3,13 +3,14 @@
 //! The pool is the only place that knows SQL. Callers get domain types from
 //! `sonora-core` back, so the UI and scanner never depend on the schema.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
 use sonora_core::{
-    sort_key, AlbumId, ArtistId, Error, FolderId, LibraryStats, PlaylistId, Result, ScanReport,
-    ScannedTrack, Settings, TrackId, TrackView, QUEUE_KEY, SETTINGS_KEY,
+    sort_key, AlbumId, ArtistId, Error, FolderId, LibraryStats, PlaylistId, PlaylistRules, Result,
+    ScanReport, ScannedTrack, Settings, TrackId, TrackView, QUEUE_KEY, SETTINGS_KEY,
 };
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePool, SqlitePoolOptions,
@@ -55,6 +56,36 @@ const TRACK_FROM: &str = "
     LEFT JOIN artists aar ON aar.id = al.album_artist_id
     LEFT JOIN track_activity act ON act.track_id = t.id
 ";
+
+/// The filter shared by a smart playlist's count and its tracks.
+///
+/// Every value arrives as a bound parameter: the listener's text never becomes
+/// SQL. `?1` is the escaped LIKE pattern, `?2`..`?5` the rating, the favourites
+/// flag and the year bounds, where zero and `NULL` mean "no constraint".
+const SMART_WHERE: &str = "
+    WHERE (?1 = '' OR t.title LIKE ?1 ESCAPE '\\'
+           OR ar.name LIKE ?1 ESCAPE '\\'
+           OR al.title LIKE ?1 ESCAPE '\\')
+      AND (?2 = 0 OR COALESCE(act.rating, 0) >= ?2)
+      AND (?3 = 0 OR COALESCE(act.favourite, 0) = 1)
+      AND (?4 IS NULL OR t.year >= ?4)
+      AND (?5 IS NULL OR t.year <= ?5)
+";
+
+/// Wrap a listener's filter in LIKE wildcards, escaping the wildcards it may
+/// have typed so `100%` matches a title and not every title.
+fn like_pattern(text: &str) -> String {
+    let mut pattern = String::with_capacity(text.len() + 2);
+    pattern.push('%');
+    for ch in text.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            pattern.push('\\');
+        }
+        pattern.push(ch);
+    }
+    pattern.push('%');
+    pattern
+}
 
 /// Maps `sqlx` failures onto our own error type so callers can use `?`.
 trait SqlxExt<T> {
@@ -296,33 +327,174 @@ impl Db {
     // --------------------------------------------------------------- playlists
 
     /// Every playlist, alphabetically, with how many tracks each holds right now.
+    ///
+    /// A smart playlist's count is whatever its rules currently select, so the
+    /// number on the Playlists page follows the library without a rescan of the
+    /// playlist itself.
     pub async fn playlists(&self) -> Result<Vec<PlaylistSummary>> {
         let rows = sqlx::query(
-            "SELECT p.id, p.name, COUNT(pt.track_id) AS track_count
+            "SELECT p.id, p.name, p.rules
              FROM playlists p
-             LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
-             GROUP BY p.id, p.name
              ORDER BY p.name COLLATE NOCASE, p.id",
         )
         .fetch_all(&self.pool)
         .await
         .db()?;
-        Ok(rows.iter().map(map_playlist).collect())
+        // One grouped query for the hand-built lists beats a count per playlist.
+        let counts = sqlx::query(
+            "SELECT playlist_id, COUNT(*) AS entries FROM playlist_tracks GROUP BY playlist_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .db()?;
+        let entries: HashMap<PlaylistId, i64> = counts
+            .iter()
+            .map(|row| (row.get("playlist_id"), row.get("entries")))
+            .collect();
+
+        let mut summaries = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let id: PlaylistId = row.get("id");
+            let rules: Option<String> = row.get("rules");
+            let track_count = match &rules {
+                Some(json) => {
+                    self.smart_playlist_count(&PlaylistRules::from_json(json)?)
+                        .await?
+                }
+                None => entries.get(&id).copied().unwrap_or(0),
+            };
+            summaries.push(PlaylistSummary {
+                id,
+                name: row.get("name"),
+                track_count,
+                smart: rules.is_some(),
+            });
+        }
+        Ok(summaries)
     }
 
     pub async fn playlist(&self, id: PlaylistId) -> Result<Option<PlaylistSummary>> {
-        let row = sqlx::query(
-            "SELECT p.id, p.name, COUNT(pt.track_id) AS track_count
-             FROM playlists p
-             LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
-             WHERE p.id = ?1
-             GROUP BY p.id, p.name",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .db()?;
-        Ok(row.as_ref().map(map_playlist))
+        let row = sqlx::query("SELECT id, name, rules FROM playlists WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .db()?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let rules: Option<String> = row.get("rules");
+        let track_count = match &rules {
+            Some(json) => {
+                self.smart_playlist_count(&PlaylistRules::from_json(json)?)
+                    .await?
+            }
+            None => {
+                let entries: i64 =
+                    sqlx::query("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = ?1")
+                        .bind(id)
+                        .fetch_one(&self.pool)
+                        .await
+                        .db()?
+                        .get(0);
+                entries
+            }
+        };
+        Ok(Some(PlaylistSummary {
+            id: row.get("id"),
+            name: row.get("name"),
+            track_count,
+            smart: rules.is_some(),
+        }))
+    }
+
+    /// The rules behind a smart playlist, or `None` for a hand-built playlist or
+    /// one that no longer exists.
+    pub async fn playlist_rules(&self, id: PlaylistId) -> Result<Option<PlaylistRules>> {
+        let row = sqlx::query("SELECT rules FROM playlists WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .db()?;
+        match row.and_then(|row| row.get::<Option<String>, _>("rules")) {
+            Some(json) => Ok(Some(PlaylistRules::from_json(&json)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Make a playlist that fills itself from `rules`.
+    pub async fn create_smart_playlist(
+        &self,
+        name: &str,
+        rules: &PlaylistRules,
+    ) -> Result<PlaylistId> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(Error::Other("a playlist needs a name".into()));
+        }
+        let result =
+            sqlx::query("INSERT INTO playlists (name, created_at, rules) VALUES (?1, ?2, ?3)")
+                .bind(name)
+                .bind(now())
+                .bind(rules.to_json()?)
+                .execute(&self.pool)
+                .await
+                .db()?;
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Replace a smart playlist's rules. Hand-built playlists are refused: making
+    /// one smart would throw away the order the listener arranged.
+    pub async fn set_playlist_rules(&self, id: PlaylistId, rules: &PlaylistRules) -> Result<()> {
+        let result =
+            sqlx::query("UPDATE playlists SET rules = ?2 WHERE id = ?1 AND rules IS NOT NULL")
+                .bind(id)
+                .bind(rules.to_json()?)
+                .execute(&self.pool)
+                .await
+                .db()?;
+        if result.rows_affected() == 0 {
+            return Err(Error::Other(format!("no smart playlist {id}")));
+        }
+        Ok(())
+    }
+
+    /// The tracks `rules` currently select, in album order so a limited playlist
+    /// still reads like a shelf rather than a random sample.
+    pub async fn smart_playlist_tracks(&self, rules: &PlaylistRules) -> Result<Vec<TrackView>> {
+        let rules = rules.clone().normalized();
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} {TRACK_FROM} {SMART_WHERE}
+             ORDER BY COALESCE(aar.sort_name, ''), COALESCE(al.title, ''),
+                      COALESCE(t.disc_no, 1), COALESCE(t.track_no, 9999), t.title
+             LIMIT ?6"
+        );
+        let rows = sqlx::query(&sql)
+            .bind(like_pattern(&rules.text))
+            .bind(i64::from(rules.min_rating))
+            .bind(i64::from(rules.favourites_only))
+            .bind(rules.year_from)
+            .bind(rules.year_to)
+            .bind(rules.limit)
+            .fetch_all(&self.pool)
+            .await
+            .db()?;
+        Ok(rows.iter().map(map_track).collect())
+    }
+
+    async fn smart_playlist_count(&self, rules: &PlaylistRules) -> Result<i64> {
+        let rules = rules.clone().normalized();
+        let sql = format!("SELECT COUNT(*) {TRACK_FROM} {SMART_WHERE}");
+        let count: i64 = sqlx::query(&sql)
+            .bind(like_pattern(&rules.text))
+            .bind(i64::from(rules.min_rating))
+            .bind(i64::from(rules.favourites_only))
+            .bind(rules.year_from)
+            .bind(rules.year_to)
+            .fetch_one(&self.pool)
+            .await
+            .db()?
+            .get(0);
+        Ok(count)
     }
 
     /// Make a playlist with `name`. Surrounding space is dropped, and a name that
@@ -368,8 +540,12 @@ impl Db {
         Ok(())
     }
 
-    /// A playlist's tracks in the order the listener arranged them.
+    /// A playlist's tracks: the order the listener arranged for a hand-built
+    /// list, or whatever the rules select for a smart one.
     pub async fn playlist_tracks(&self, id: PlaylistId) -> Result<Vec<TrackView>> {
+        if let Some(rules) = self.playlist_rules(id).await? {
+            return self.smart_playlist_tracks(&rules).await;
+        }
         let sql = format!(
             "SELECT {TRACK_COLUMNS} {TRACK_FROM}
              WHERE t.id IN (SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1)
@@ -387,6 +563,11 @@ impl Db {
     /// Append a track. Adding the same track twice is a no-op, so the answer says
     /// whether the playlist actually grew.
     pub async fn add_to_playlist(&self, id: PlaylistId, track: TrackId) -> Result<bool> {
+        self.ensure_hand_built(
+            id,
+            "add a track to a smart playlist; change its rules instead",
+        )
+        .await?;
         let next: i64 = sqlx::query(
             "SELECT COALESCE(MAX(position) + 1, 0) FROM playlist_tracks WHERE playlist_id = ?1",
         )
@@ -411,6 +592,11 @@ impl Db {
     }
 
     pub async fn remove_from_playlist(&self, id: PlaylistId, track: TrackId) -> Result<bool> {
+        self.ensure_hand_built(
+            id,
+            "remove a track from a smart playlist; change its rules instead",
+        )
+        .await?;
         let removed =
             sqlx::query("DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2")
                 .bind(id)
@@ -431,6 +617,8 @@ impl Db {
 
     /// Move the entry at `from` so it sits at `to`, shifting the entries between.
     pub async fn move_playlist_track(&self, id: PlaylistId, from: i64, to: i64) -> Result<()> {
+        self.ensure_hand_built(id, "reorder a smart playlist; it has no order to arrange")
+            .await?;
         let mut order = self.playlist_order(id).await?;
         let len = order.len() as i64;
         if !(0..len).contains(&from) || !(0..len).contains(&to) {
@@ -445,6 +633,24 @@ impl Db {
         let moved = order.remove(from as usize);
         order.insert(to as usize, moved);
         self.write_playlist_order(id, &order).await
+    }
+
+    /// Refuse a hand edit on a playlist that fills itself, and say why. A smart
+    /// playlist's entries are derived, so an insert or a move would either be
+    /// discarded on the next read or fight the rules.
+    async fn ensure_hand_built(&self, id: PlaylistId, action: &str) -> Result<()> {
+        let row = sqlx::query("SELECT rules IS NOT NULL AS smart FROM playlists WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .db()?;
+        let Some(row) = row else {
+            return Err(Error::Other(format!("no playlist {id}")));
+        };
+        if row.get::<i64, _>("smart") != 0 {
+            return Err(Error::Other(format!("cannot {action}")));
+        }
+        Ok(())
     }
 
     async fn playlist_order(&self, id: PlaylistId) -> Result<Vec<TrackId>> {
@@ -1095,6 +1301,8 @@ pub struct PlaylistSummary {
     pub id: PlaylistId,
     pub name: String,
     pub track_count: i64,
+    /// Whether the tracks come from rules rather than from the listener's order.
+    pub smart: bool,
 }
 
 /// One row on the History page: a play event plus the track it refers to.
@@ -1123,14 +1331,6 @@ fn map_album(row: &SqliteRow) -> AlbumSummary {
         year: row.try_get::<Option<i64>, _>("year").unwrap_or(None),
         track_count: row.get("track_count"),
         duration_ms: row.get("duration_ms"),
-    }
-}
-
-fn map_playlist(row: &SqliteRow) -> PlaylistSummary {
-    PlaylistSummary {
-        id: row.get("id"),
-        name: row.get("name"),
-        track_count: row.get("track_count"),
     }
 }
 
@@ -1937,6 +2137,215 @@ mod tests {
         assert!(db.create_playlist("   ").await.is_err());
         assert!(db.rename_playlist(list, "").await.is_err());
         assert_eq!(db.playlist(list).await.unwrap().unwrap().name, "Finished");
+    }
+
+    #[tokio::test]
+    async fn smart_playlists_follow_the_library() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, second) = seed_two_tracks(&db).await;
+
+        let starred = db
+            .create_smart_playlist(
+                "Starred",
+                &PlaylistRules {
+                    min_rating: 4,
+                    ..PlaylistRules::default()
+                },
+            )
+            .await
+            .unwrap();
+        // Empty rules select the whole library, so an unfiltered smart playlist is
+        // usable before anyone edits it.
+        let everything = db
+            .create_smart_playlist("Everything", &PlaylistRules::default())
+            .await
+            .unwrap();
+        assert_eq!(db.playlist_tracks(everything).await.unwrap().len(), 2);
+
+        // Editing the library is the only way a smart playlist changes.
+        assert!(db.playlist_tracks(starred).await.unwrap().is_empty());
+        db.set_rating(first, 5).await.unwrap();
+        let picked: Vec<TrackId> = db
+            .playlist_tracks(starred)
+            .await
+            .unwrap()
+            .iter()
+            .map(|track| track.id)
+            .collect();
+        assert_eq!(picked, vec![first]);
+
+        db.set_rating(second, 4).await.unwrap();
+        let count = db.playlist(starred).await.unwrap().unwrap().track_count;
+        assert_eq!(count, 2, "the summary counts what the rules select now");
+
+        // Dropping a rating drops the track again, with no playlist edit at all.
+        db.set_rating(first, 1).await.unwrap();
+        let picked: Vec<TrackId> = db
+            .playlist_tracks(starred)
+            .await
+            .unwrap()
+            .iter()
+            .map(|track| track.id)
+            .collect();
+        assert_eq!(picked, vec![second]);
+
+        let summaries = db.playlists().await.unwrap();
+        assert_eq!(summaries.len(), 2);
+        assert!(summaries.iter().all(|summary| summary.smart));
+        assert_eq!(summaries[0].name, "Everything");
+        assert_eq!(summaries[0].track_count, 2);
+        assert_eq!(summaries[1].track_count, 1);
+    }
+
+    #[tokio::test]
+    async fn smart_rules_filter_by_text_favourite_year_and_limit() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, second) = seed_two_tracks(&db).await;
+        let folder = db.add_folder(Path::new("/more")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let third = match db
+            .upsert_scanned(
+                folder,
+                run,
+                &[track(
+                    "/more/c.mp3",
+                    "Roygbiv",
+                    "Boards of Canada",
+                    "MHTRTC",
+                )],
+            )
+            .await
+            .unwrap()[0]
+        {
+            UpsertOutcome::Imported(id) => id,
+            other => panic!("expected an import, got {other:?}"),
+        };
+        db.set_favourite(second, true).await.unwrap();
+
+        let ids = |tracks: Vec<sonora_core::TrackView>| -> Vec<TrackId> {
+            tracks.iter().map(|track| track.id).collect()
+        };
+
+        // Text matches an artist, an album or a title, case-insensitively.
+        let by_artist = PlaylistRules {
+            text: "boards".into(),
+            ..PlaylistRules::default()
+        };
+        assert_eq!(
+            ids(db.smart_playlist_tracks(&by_artist).await.unwrap()),
+            vec![third]
+        );
+        let by_album = PlaylistRules {
+            text: "saw".into(),
+            ..PlaylistRules::default()
+        };
+        assert_eq!(
+            ids(db.smart_playlist_tracks(&by_album).await.unwrap()),
+            vec![second]
+        );
+        let by_title = PlaylistRules {
+            text: "WINDOW".into(),
+            ..PlaylistRules::default()
+        };
+        assert_eq!(
+            ids(db.smart_playlist_tracks(&by_title).await.unwrap()),
+            vec![first]
+        );
+
+        // A typed wildcard is matched literally rather than matching everything.
+        let literal = PlaylistRules {
+            text: "%".into(),
+            ..PlaylistRules::default()
+        };
+        assert!(db.smart_playlist_tracks(&literal).await.unwrap().is_empty());
+
+        let favourites = PlaylistRules {
+            favourites_only: true,
+            ..PlaylistRules::default()
+        };
+        assert_eq!(
+            ids(db.smart_playlist_tracks(&favourites).await.unwrap()),
+            vec![second]
+        );
+
+        // The fixtures are all from 1999.
+        let decades = PlaylistRules {
+            year_from: Some(1990),
+            year_to: Some(1999),
+            ..PlaylistRules::default()
+        };
+        assert_eq!(db.smart_playlist_tracks(&decades).await.unwrap().len(), 3);
+        let later = PlaylistRules {
+            year_from: Some(2005),
+            ..PlaylistRules::default()
+        };
+        assert!(db.smart_playlist_tracks(&later).await.unwrap().is_empty());
+
+        // A limit caps the answer, and a nonsense one is clamped into range.
+        let capped = PlaylistRules {
+            limit: 2,
+            ..PlaylistRules::default()
+        };
+        assert_eq!(db.smart_playlist_tracks(&capped).await.unwrap().len(), 2);
+        let zero = PlaylistRules {
+            limit: 0,
+            ..PlaylistRules::default()
+        };
+        assert_eq!(db.smart_playlist_tracks(&zero).await.unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn smart_playlists_refuse_hand_edits_and_keep_their_rules() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, _) = seed_two_tracks(&db).await;
+        let rules = PlaylistRules {
+            text: "aphex".into(),
+            min_rating: 0,
+            favourites_only: false,
+            year_from: Some(1990),
+            year_to: None,
+            limit: 50,
+        };
+        let smart = db.create_smart_playlist("Smart", &rules).await.unwrap();
+        let manual = db.create_playlist("Manual").await.unwrap();
+
+        // The rules round-trip through the database unchanged.
+        assert_eq!(db.playlist_rules(smart).await.unwrap(), Some(rules.clone()));
+        assert_eq!(db.playlist_rules(manual).await.unwrap(), None);
+
+        // A hand edit on a smart playlist is refused, and the rules still win.
+        assert!(db.add_to_playlist(smart, first).await.is_err());
+        assert!(db.remove_from_playlist(smart, first).await.is_err());
+        assert!(db.move_playlist_track(smart, 0, 0).await.is_err());
+        assert_eq!(db.playlist_tracks(smart).await.unwrap().len(), 2);
+
+        // Editing the rules replaces them, normalized.
+        let stashed = db
+            .set_playlist_rules(
+                smart,
+                &PlaylistRules {
+                    min_rating: 9,
+                    ..PlaylistRules::default()
+                },
+            )
+            .await;
+        assert!(stashed.is_ok());
+        let stored = db.playlist_rules(smart).await.unwrap().unwrap();
+        assert_eq!(stored.min_rating, 5);
+        assert!(stored.text.is_empty());
+        assert_eq!(db.playlist_tracks(smart).await.unwrap().len(), 0);
+
+        // A hand-built playlist cannot be turned into a smart one behind the
+        // listener's back, and unknown ids are refused rather than ignored.
+        assert!(db.set_playlist_rules(manual, &rules).await.is_err());
+        assert!(db.set_playlist_rules(9_999, &rules).await.is_err());
+        assert!(db.create_smart_playlist("  ", &rules).await.is_err());
+
+        // Renaming a smart playlist keeps it smart.
+        db.rename_playlist(smart, "Renamed").await.unwrap();
+        let summary = db.playlist(smart).await.unwrap().unwrap();
+        assert_eq!(summary.name, "Renamed");
+        assert!(summary.smart);
     }
 
     #[tokio::test]

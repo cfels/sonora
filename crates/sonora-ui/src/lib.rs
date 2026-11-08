@@ -20,7 +20,7 @@ use std::time::Duration;
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel, Weak};
 use sonora_core::{
     format_duration, AlbumId, ArtistId, ArtworkFormat, Event, FolderTemplate, FormatPreference,
-    FormatTier, PlaylistId, Settings, TrackId, TrackView,
+    FormatTier, PlaylistId, PlaylistRules, Settings, TrackId, TrackView, SMART_LIMIT_DEFAULT,
 };
 use sonora_db::{AlbumSummary, Db, HistoryEntry, PlaylistSummary};
 use sonora_playback::{Engine, PlaybackState, Resolver};
@@ -94,6 +94,90 @@ struct ArtistPage {
 struct PlaylistPage {
     id: PlaylistId,
     order: Vec<TrackId>,
+}
+
+/// Everything the open playlist's page shows, built from the summary, its tracks
+/// and (for a smart playlist) its rules, so opening and refreshing a page cannot
+/// disagree about what the page looks like.
+struct PlaylistView {
+    name: String,
+    meta: String,
+    rows: Vec<TrackRow>,
+    smart: bool,
+    rules_summary: String,
+    filter: String,
+    favourites: bool,
+    stars: i32,
+    year: String,
+}
+
+impl PlaylistView {
+    fn new(summary: &PlaylistSummary, tracks: &[TrackView], rules: Option<&PlaylistRules>) -> Self {
+        let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
+        Self {
+            name: summary.name.clone(),
+            meta: format!("{} tracks · {}", tracks.len(), format_duration(total_ms)),
+            rows: track_rows(tracks),
+            smart: rules.is_some(),
+            rules_summary: rules.map(PlaylistRules::describe).unwrap_or_default(),
+            filter: rules.map(|rules| rules.text.clone()).unwrap_or_default(),
+            favourites: rules.map(|rules| rules.favourites_only).unwrap_or(false),
+            stars: rules.map(|rules| i32::from(rules.min_rating)).unwrap_or(0),
+            year: rules
+                .and_then(|rules| rules.year_from)
+                .map(|year| year.to_string())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Push the page to the window. The rename field is set separately, because
+    /// a refresh must not overwrite a name the listener is still typing.
+    fn apply(&self, ui: &AppWindow) {
+        ui.set_playlist_title(self.name.clone().into());
+        ui.set_playlist_meta(self.meta.clone().into());
+        ui.set_playlist_tracks(model(self.rows.clone()));
+        ui.set_playlist_smart(self.smart);
+        ui.set_playlist_rules_summary(self.rules_summary.clone().into());
+        ui.set_smart_filter_input(self.filter.clone().into());
+        ui.set_smart_favourites(self.favourites);
+        ui.set_smart_min_rating(self.stars);
+        ui.set_smart_year_input(self.year.clone().into());
+    }
+}
+
+/// Read the editor's year box. Blank means "no bound"; anything that is not a
+/// four-digit year is reported instead of silently ignored, because a typo would
+/// otherwise widen or narrow the playlist without saying so.
+fn parse_year(text: &str) -> std::result::Result<Option<i64>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    match text.parse::<i64>() {
+        Ok(year) if (1000..=9999).contains(&year) => Ok(Some(year)),
+        _ => Err(format!(
+            "\"{text}\" is not a year. Use four digits, like 1971."
+        )),
+    }
+}
+
+/// Turn the rule editor into a stored document. The editor is compact (one year
+/// bound, a star floor), so an unset field simply means "no constraint".
+fn rules_from_editor(
+    filter: String,
+    favourites: bool,
+    min_rating: i32,
+    year: &str,
+) -> std::result::Result<PlaylistRules, String> {
+    Ok(PlaylistRules {
+        text: filter,
+        min_rating: min_rating.clamp(0, 5) as u8,
+        favourites_only: favourites,
+        year_from: parse_year(year)?,
+        year_to: None,
+        limit: SMART_LIMIT_DEFAULT,
+    }
+    .normalized())
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -1194,45 +1278,7 @@ fn wire_playlists(
             let db = db.clone();
             let handle = handle.clone();
             let lookup = lookup.clone();
-            handle.spawn(async move {
-                let playlist_id = id as PlaylistId;
-                let Some(summary) = db.playlist(playlist_id).await.ok().flatten() else {
-                    set_status(&weak, "That playlist no longer exists.");
-                    return;
-                };
-                let tracks = match db.playlist_tracks(playlist_id).await {
-                    Ok(tracks) => tracks,
-                    Err(err) => {
-                        log::error!("could not read playlist {playlist_id}: {err}");
-                        set_status(&weak, "Could not open that playlist.");
-                        return;
-                    }
-                };
-
-                remember_tracks(&lookup, &tracks);
-                let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
-                let meta = format!("{} tracks · {}", tracks.len(), format_duration(total_ms));
-                let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
-                let rows = track_rows(&tracks);
-                {
-                    let mut lookup = lock(&lookup);
-                    lookup.section = "playlist".to_string();
-                    lookup.playlist = Some(PlaylistPage {
-                        id: playlist_id,
-                        order,
-                    });
-                }
-
-                let name = summary.name;
-                let _ = weak.upgrade_in_event_loop(move |ui| {
-                    ui.set_playlist_title(name.clone().into());
-                    ui.set_playlist_meta(meta.into());
-                    ui.set_playlist_name_input(name.into());
-                    ui.set_playlist_tracks(model(rows));
-                    ui.set_playlist_delete_armed(false);
-                    ui.set_section("playlist".into());
-                });
-            });
+            handle.spawn(show_playlist(id as PlaylistId, weak, db, lookup));
         });
     }
 
@@ -1258,6 +1304,86 @@ fn wire_playlists(
                     Err(err) => {
                         log::warn!("could not create a playlist: {err}");
                         set_status(&weak, "A playlist needs a name.");
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_playlist_smart_create(move |name, filter, favourites, stars, year| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            let name = name.to_string();
+            let filter = filter.to_string();
+            let year = year.to_string();
+            handle.clone().spawn(async move {
+                let rules = match rules_from_editor(filter, favourites, stars, &year) {
+                    Ok(rules) => rules,
+                    Err(message) => {
+                        set_status(&weak, &message);
+                        return;
+                    }
+                };
+                match db.create_smart_playlist(&name, &rules).await {
+                    Ok(id) => {
+                        set_status(
+                            &weak,
+                            format!("Created smart playlist \"{}\".", name.trim()),
+                        );
+                        let _ = weak.upgrade_in_event_loop(|ui| ui.set_smart_name_input("".into()));
+                        // Open it, so the listener sees what the rules picked
+                        // instead of a new row with nothing to explain it.
+                        show_playlist(id, weak.clone(), db.clone(), lookup.clone()).await;
+                        refresh_playlists(&weak, &db, &handle, &lookup);
+                    }
+                    Err(err) => {
+                        log::warn!("could not create a smart playlist: {err}");
+                        set_status(&weak, "A playlist needs a name.");
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_playlist_smart_save(move |filter, favourites, stars, year| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            let lookup = lookup.clone();
+            let filter = filter.to_string();
+            let year = year.to_string();
+            handle.clone().spawn(async move {
+                let Some(page) = lock(&lookup).playlist.clone() else {
+                    set_status(&weak, "Open a smart playlist before saving its rules.");
+                    return;
+                };
+                let rules = match rules_from_editor(filter, favourites, stars, &year) {
+                    Ok(rules) => rules,
+                    Err(message) => {
+                        set_status(&weak, &message);
+                        return;
+                    }
+                };
+                match db.set_playlist_rules(page.id, &rules).await {
+                    Ok(()) => {
+                        set_status(&weak, format!("Rules saved: {}.", rules.describe()));
+                        refresh_playlists(&weak, &db, &handle, &lookup);
+                    }
+                    Err(err) => {
+                        log::error!("could not save the rules of playlist {}: {err}", page.id);
+                        set_status(&weak, "Only a smart playlist can hold rules.");
                     }
                 }
             });
@@ -1437,6 +1563,55 @@ fn wire_playlists(
     }
 }
 
+/// Open a playlist page, whether its tracks come from entries or from rules.
+///
+/// Opening is also where the rule editor is filled in, so a smart playlist's
+/// page always starts from what is actually stored.
+async fn show_playlist(
+    id: PlaylistId,
+    weak: Weak<AppWindow>,
+    db: Db,
+    lookup: Arc<Mutex<TrackLookup>>,
+) {
+    let Some(summary) = db.playlist(id).await.ok().flatten() else {
+        set_status(&weak, "That playlist no longer exists.");
+        return;
+    };
+    let tracks = match db.playlist_tracks(id).await {
+        Ok(tracks) => tracks,
+        Err(err) => {
+            log::error!("could not read playlist {id}: {err}");
+            set_status(&weak, "Could not open that playlist.");
+            return;
+        }
+    };
+    let rules = match db.playlist_rules(id).await {
+        Ok(rules) => rules,
+        Err(err) => {
+            log::error!("could not read the rules of playlist {id}: {err}");
+            set_status(&weak, "Could not read that playlist's rules.");
+            return;
+        }
+    };
+
+    remember_tracks(&lookup, &tracks);
+    let view = PlaylistView::new(&summary, &tracks, rules.as_ref());
+    let name = summary.name.clone();
+    let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
+    {
+        let mut lookup = lock(&lookup);
+        lookup.section = "playlist".to_string();
+        lookup.playlist = Some(PlaylistPage { id, order });
+    }
+
+    let _ = weak.upgrade_in_event_loop(move |ui| {
+        view.apply(&ui);
+        ui.set_playlist_name_input(name.into());
+        ui.set_playlist_delete_armed(false);
+        ui.set_section("playlist".into());
+    });
+}
+
 /// Reload the playlist list, and the open playlist's tracks when there is one.
 fn refresh_playlists(
     weak: &Weak<AppWindow>,
@@ -1461,28 +1636,21 @@ fn refresh_playlists(
             Some(page) => {
                 let tracks = db.playlist_tracks(page.id).await.unwrap_or_default();
                 remember_tracks(&lookup, &tracks);
-                let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
-                let name = playlists
-                    .iter()
-                    .find(|playlist| playlist.id == page.id)
-                    .map(|playlist| playlist.name.clone())
-                    .unwrap_or_default();
-                let meta = format!("{} tracks · {}", tracks.len(), format_duration(total_ms));
                 let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
                 if let Some(open) = lock(&lookup).playlist.as_mut() {
                     open.order = order;
                 }
-                Some((name, meta, track_rows(&tracks)))
+                let summary = playlists.iter().find(|playlist| playlist.id == page.id);
+                let rules = db.playlist_rules(page.id).await.ok().flatten();
+                summary.map(|summary| PlaylistView::new(summary, &tracks, rules.as_ref()))
             }
             None => None,
         };
 
         let _ = weak.upgrade_in_event_loop(move |ui| {
             ui.set_playlists(model(rows));
-            if let Some((name, meta, tracks)) = page {
-                ui.set_playlist_title(name.into());
-                ui.set_playlist_meta(meta.into());
-                ui.set_playlist_tracks(model(tracks));
+            if let Some(view) = page {
+                view.apply(&ui);
             }
         });
     });
@@ -1591,18 +1759,13 @@ fn refresh_all(
             (true, Some(page)) => match ctx.db.playlist_tracks(page.id).await {
                 Ok(tracks) => {
                     remember_tracks(&lookup, &tracks);
-                    let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
-                    let name = playlists
-                        .iter()
-                        .find(|playlist| playlist.id == page.id)
-                        .map(|playlist| playlist.name.clone())
-                        .unwrap_or_default();
-                    let meta = format!("{} tracks · {}", tracks.len(), format_duration(total_ms));
                     let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
                     if let Some(open) = lock(&lookup).playlist.as_mut() {
                         open.order = order;
                     }
-                    Some((name, meta, track_rows(&tracks)))
+                    let summary = playlists.iter().find(|playlist| playlist.id == page.id);
+                    let rules = ctx.db.playlist_rules(page.id).await.ok().flatten();
+                    summary.map(|summary| PlaylistView::new(summary, &tracks, rules.as_ref()))
                 }
                 Err(err) => {
                     log::error!("could not refresh the open playlist: {err}");
@@ -1635,10 +1798,8 @@ fn refresh_all(
             ui.set_albums(model(album_rows));
             ui.set_folders(model(folders));
             ui.set_playlists(model(playlist_rows(&playlists)));
-            if let Some((name, meta, rows)) = playlist_page {
-                ui.set_playlist_title(name.into());
-                ui.set_playlist_meta(meta.into());
-                ui.set_playlist_tracks(model(rows));
+            if let Some(view) = playlist_page {
+                view.apply(&ui);
             }
             if let Some((rows, counts)) = album_page {
                 ui.set_album_tracks(model(rows));
@@ -2364,6 +2525,7 @@ fn playlist_rows(playlists: &[PlaylistSummary]) -> Vec<PlaylistRow> {
             id: saturating_i32(playlist.id as u64),
             name: playlist.name.clone().into(),
             count: saturating_i32(playlist.track_count as u64),
+            smart: playlist.smart,
         })
         .collect()
 }

@@ -5229,6 +5229,7 @@ dependencies = [
  "slint",
  "slint-build",
  "sonora-artwork",
+ "sonora-cache",
  "sonora-core",
  "sonora-db",
  "sonora-metadata",

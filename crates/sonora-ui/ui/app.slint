@@ -3,26 +3,315 @@
 // Library views plus the playback transport and queue. Every control here is
 // wired to real behaviour — there are no placeholder buttons.
 
-import { ScrollView, LineEdit, Slider } from "std-widgets.slint";
+import { ScrollView, LineEdit, ComboBox } from "std-widgets.slint";
 
 global Palette {
-    // Warm charcoal rather than pure grey, with a amber accent: Sonora's own
-    // palette, not a copy of anybody's streaming service.
-    out property <color> bg: #17161b;
-    out property <color> sidebar: #101015;
-    out property <color> panel: #1e1d23;
-    out property <color> panel-hover: #2a2831;
-    out property <color> stroke: #2e2c35;
-    out property <color> text: #f5f3ef;
-    out property <color> muted: #a3a0ab;
-    out property <color> accent: #f0b13c;
-    out property <color> accent-hover: #ffc65a;
-    out property <color> accent-soft: #3a2f18;
-    // Dark ink on the amber, because white on it is unreadable.
-    out property <color> accent-text: #191510;
+    out property <color> bg: #141414;
+    out property <color> sidebar: #b4b4b466;
+    out property <color> panel: #b4b4b42b;
+    out property <color> panel-hover: #ffffff26;
+    out property <color> stroke: #ffffff38;
+    out property <color> text: #ffffff;
+    out property <color> muted: #dddddd;
+    out property <color> accent: #ffffff;
+    out property <color> accent-hover: #eeeeee;
+    out property <color> accent-soft: #ffffff26;
+    out property <color> accent-text: #141414;
+    out property <length> radius: 10px;
+    out property <length> panel-radius: 13px;
+}
+
+// Slint has no native backdrop filter. This layer samples the same scene
+// coordinates from the cover blurred on a worker, keeping foreground text sharp.
+component PanelBackdrop inherits Rectangle {
+    in property <image> texture;
+    in property <image> previous-texture;
+    in property <float> blend: 1;
+    private property <float> texture-opacity: root.active ? 1 : 0;
+    animate texture-opacity {
+        duration: 140ms;
+        easing: ease-out;
+    }
+    in property <bool> active: true;
+    in property <length> canvas-width;
+    in property <length> canvas-height;
+    in property <length> scene-x;
+    in property <length> scene-y;
+    border-radius: Palette.radius;
+    background: Palette.bg;
+    clip: true;
+    Image {
+        source: root.previous-texture;
+        x: -root.scene-x;
+        y: -root.scene-y;
+        width: root.canvas-width;
+        height: root.canvas-height;
+        image-fit: cover;
+        opacity: (1 - root.blend) * root.texture-opacity;
+    }
+
+    Image {
+        source: root.texture;
+        opacity: root.blend * root.texture-opacity;
+        x: -root.scene-x;
+        y: -root.scene-y;
+        width: root.canvas-width;
+        height: root.canvas-height;
+        image-fit: cover;
+    }
+
+    Rectangle {
+        background: #00000070;
+    }
+}
+
+component SettingSwitch inherits Rectangle {
+    in property <string> label;
+    in-out property <bool> checked: true;
+    callback toggled(bool);
+    height: 44px;
+    accessible-role: checkbox;
+    accessible-label: root.label;
+    accessible-checkable: true;
+    accessible-checked <=> root.checked;
+    accessible-action-default => { root.toggle(); }
+    forward-focus: switch-focus;
+    function toggle() { root.checked = !root.checked; root.toggled(root.checked); }
+    Text {
+        x: 0px;
+        y: 0px;
+        width: max(0px, parent.width - 62px);
+        height: parent.height;
+        text: root.label;
+        color: Palette.text;
+        font-size: 14px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    Rectangle {
+        x: parent.width - self.width;
+        y: (parent.height - self.height) / 2;
+        width: 42px;
+        height: 24px;
+        border-radius: 12px;
+        background: root.checked ? #ffffff55 : Palette.panel;
+        border-width: 1px;
+        border-color: switch-focus.has-focus ? Palette.text : Palette.stroke;
+        Rectangle {
+            x: root.checked ? 21px : 3px;
+            y: 3px;
+            width: 18px;
+            height: 18px;
+            border-radius: 9px;
+            background: Palette.text;
+        }
+    }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { switch-focus.focus(); root.toggle(); }
+    }
+
+    switch-focus := FocusScope {
+        width: 0px;
+        height: 0px;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) { root.toggle(); return accept; }
+            return reject;
+        }
+    }
+}
+
+export struct ArtistRow { id: int, name: string, meta: string }
+
+export struct FolderRow { id: int, path: string }
+
+// One slider implementation for settings, volume and seeking. The hit target
+// is larger than the visible rail, and TouchArea retains a pressed pointer.
+component Slider inherits Rectangle {
+    in property <float> minimum: 0;
+    in property <float> maximum: 100;
+    in property <float> step: 1;
+    in property <bool> enabled: true;
+    in property <string> label: "";
+    in-out property <float> value: 0;
+    out property <bool> pressed: touch.pressed;
+    callback changed(float);
+    callback released();
+    height: 28px;
+    min-width: 40px;
+    horizontal-stretch: 1;
+    opacity: root.enabled ? 1 : 0.35;
+    forward-focus: focus;
+    accessible-role: slider;
+    accessible-label: root.label;
+    accessible-value: "\{root.value}";
+
+    function set-value(value: float) {
+        root.value = clamp(value, root.minimum, root.maximum);
+        root.changed(root.value);
+    }
+    function from-pointer() {
+        if (root.width > 0px && root.maximum > root.minimum) {
+            root.set-value(root.minimum + (touch.mouse-x / root.width) * (root.maximum - root.minimum));
+        }
+    }
+    Rectangle {
+        x: 0px;
+        y: (parent.height - 3px) / 2;
+        width: parent.width;
+        height: 3px;
+        border-radius: 2px;
+        background: Palette.stroke;
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            height: parent.height;
+            width: root.maximum > root.minimum ? parent.width * clamp((root.value - root.minimum) / (root.maximum - root.minimum), 0, 1) : 0px;
+            background: Palette.text;
+            border-radius: 2px;
+        }
+    }
+
+    Rectangle {
+        width: 9px;
+        height: 9px;
+        x: clamp((root.value - root.minimum) / max(0.001, root.maximum - root.minimum), 0, 1) * (parent.width - self.width);
+        y: (parent.height - self.height) / 2;
+        border-radius: 5px;
+        background: Palette.text;
+    }
+
+    Rectangle {
+        border-width: focus.has-focus ? 1px : 0px;
+        border-color: Palette.text;
+        border-radius: 4px;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                focus.focus();
+                root.from-pointer();
+            }
+            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
+                root.from-pointer();
+                root.released();
+            }
+            if (event.kind == PointerEventKind.cancel) { root.released(); }
+        }
+        moved => { if (self.pressed) { root.from-pointer(); } }
+    }
+
+    focus := FocusScope {
+        x: 0px;
+        y: 0px;
+        width: 0px;
+        height: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.RightArrow || event.text == Key.UpArrow) {
+                root.set-value(root.value + root.step);
+                return accept;
+            }
+            if (event.text == Key.LeftArrow || event.text == Key.DownArrow) {
+                root.set-value(root.value - root.step);
+                return accept;
+            }
+            if (event.text == Key.Home) { root.set-value(root.minimum); return accept; }
+            if (event.text == Key.End) { root.set-value(root.maximum); return accept; }
+            return reject;
+        }
+    }
+}
+
+component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> active: false;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    background: touch.has-hover || root.active ? Palette.panel-hover : transparent;
+    opacity: root.enabled ? 1 : 0.35;
+    accessible-role: button;
+    accessible-label: root.label;
+    forward-focus: focus;
+    Image {
+        source: root.icon;
+        width: 25px;
+        height: 25px;
+        image-fit: contain;
+    }
+
+    Rectangle {
+        border-width: focus.has-focus ? 1px : 0px;
+        border-color: Palette.text;
+        border-radius: 6px;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    focus := FocusScope {
+        x: 0px;
+        y: 0px;
+        width: 0px;
+        height: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+}
+
+export global RowArtwork {
+    in-out property <length> window-width: 1920px;
+    in-out property <length> window-height: 1080px;
+    in-out property <int> revision: 0;
+    in-out property <int> current-track: 0;
+    in-out property <bool> playback-available: true;
+    pure callback image-for-key(string, int) -> image;
+    callback requested(int, string);
+    callback loaded(string, image);
+}
+
+component SongCover inherits Rectangle {
+    in property <int> track-id;
+    in property <string> key;
+    property <int> revision: RowArtwork.revision;
+    init => { RowArtwork.requested(root.track-id, root.key); }
+    changed key => { RowArtwork.requested(root.track-id, root.key); }
+    changed revision => { RowArtwork.requested(root.track-id, root.key); }
+    border-radius: 6px;
+    background: Palette.panel;
+    clip: true;
+    Image {
+        source: @image-url("../../../assets/design/logo.svg");
+        width: 20px;
+        height: 26px;
+        opacity: 0.4;
+    }
+
+    Image {
+        source: RowArtwork.image-for-key(root.key, root.revision);
+        width: parent.width;
+        height: parent.height;
+        image-fit: cover;
+    }
 }
 
 export struct TrackRow {
+    cover-key: string,
     id: int,
     title: string,
     artist: string,
@@ -65,8 +354,29 @@ component NavItem inherits Rectangle {
     in property <bool> active: false;
     callback clicked();
 
-    height: 38px;
+    in property <float> scale: 1;
+    height: 53px * root.scale;
     border-radius: 6px;
+    accessible-role: button;
+    accessible-label: root.label;
+    forward-focus: nav-focus;
+    nav-focus := FocusScope {
+        x: 0px;
+        y: 0px;
+        width: 0px;
+        height: 0px;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+
+    Rectangle {
+        border-width: nav-focus.has-focus ? 1px : 0px;
+        border-color: Palette.text;
+        border-radius: 6px;
+    }
+
     background: root.active ? Palette.panel-hover : (touch.has-hover ? #1a1a1a : transparent);
 
     touch := TouchArea {
@@ -76,14 +386,15 @@ component NavItem inherits Rectangle {
     }
 
     Text {
+        y: 0px;
         text: root.label;
         color: root.active ? Palette.text : Palette.muted;
-        font-size: 14px;
-        font-weight: root.active ? 700 : 400;
-        x: 14px;
-        width: parent.width - 28px;
-        height: parent.height;
-        vertical-alignment: center;
+        font-size: 24px * root.scale;
+        font-weight: 600;
+        x: 0px;
+        width: parent.width;
+        height: 28px * root.scale;
+        vertical-alignment: top;
     }
 }
 
@@ -96,6 +407,7 @@ component StatCard inherits Rectangle {
     background: Palette.panel;
 
     VerticalLayout {
+
         padding: 16px;
         spacing: 2px;
         alignment: start;
@@ -106,6 +418,7 @@ component StatCard inherits Rectangle {
             font-size: 26px;
             font-weight: 600;
         }
+
         Text {
             text: root.caption;
             color: Palette.muted;
@@ -120,6 +433,26 @@ component ActionButton inherits Rectangle {
     in property <string> label;
     in property <bool> primary: true;
     callback clicked();
+
+    accessible-role: button;
+    accessible-label: root.label;
+    forward-focus: action-focus;
+    action-focus := FocusScope {
+        x: 0px;
+        y: 0px;
+        width: 0px;
+        height: 0px;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+
+    Rectangle {
+        border-width: action-focus.has-focus ? 1px : 0px;
+        border-color: Palette.text;
+        border-radius: 8px;
+    }
 
     height: 36px;
     width: content.preferred-width;
@@ -205,6 +538,7 @@ component EmptyState inherits Rectangle {
 }
 
 component TrackRowItem inherits Rectangle {
+    min-width: 0px;
     in property <TrackRow> track;
     in property <int> position: 0;
     in property <bool> show-index: false;
@@ -226,47 +560,72 @@ component TrackRowItem inherits Rectangle {
 
     height: 56px;
     border-radius: 6px;
-    background: touch.has-hover ? Palette.panel-hover : transparent;
-
-    touch := TouchArea {
-        clicked => {
+    background: touch.pressed || root.track.id == RowArtwork.current-track ? Palette.accent-soft : (touch.has-hover ? Palette.panel-hover : transparent);
+    function activate() {
+        if (RowArtwork.playback-available) {
+            RowArtwork.current-track = root.track.id;
             root.activated(root.track.id);
         }
     }
 
+    touch := TouchArea {
+        clicked => {
+            root.activate();
+        }
+    }
+
     HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
-        spacing: 14px;
+        padding-left: RowArtwork.window-width < 1300px ? 8px : 12px;
+        padding-right: RowArtwork.window-width < 1300px ? 8px : 12px;
+        spacing: RowArtwork.window-width < 1460px ? 6px : 14px;
 
         Text {
             text: "\{root.position}";
-            width: 26px;
+            width: RowArtwork.window-width < 1300px ? 18px : 26px;
             visible: root.show-index;
             color: Palette.muted;
             font-size: 12px;
             vertical-alignment: center;
         }
 
+        Rectangle {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            background: Palette.panel;
+            if root.absolute-position.y + root.height > 0px && root.absolute-position.y < RowArtwork.window-height: SongCover {
+                width: parent.width;
+                height: parent.height;
+                track-id: root.track.id;
+                key: root.track.cover-key;
+            }
+        }
+
         VerticalLayout {
+
             spacing: 2px;
             alignment: center;
             horizontal-stretch: 1;
+            min-width: 0px;
 
-            // Track title opens its release; the row behind still plays on click.
+            // The main song area always plays; album and artist credits keep their links.
             Rectangle {
                 height: 18px;
                 background: transparent;
                 title-text := Text {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
                     text: root.track.title;
                     color: root.track.album-id > 0 && title-touch.has-hover ? Palette.accent : Palette.text;
                     font-size: 14px;
                     overflow: elide;
                 }
+
                 title-touch := TouchArea {
                     clicked => {
-                        if root.track.album-id > 0 { root.open-album(root.track.album-id); }
-                        else { root.activated(root.track.id); }
+                        root.activate();
                     }
                 }
             }
@@ -277,14 +636,20 @@ component TrackRowItem inherits Rectangle {
                 height: 16px;
 
                 Rectangle {
-                    width: artist-text.preferred-width;
+                    horizontal-stretch: 1;
+                    min-width: 0px;
                     background: transparent;
                     artist-text := Text {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        height: parent.height;
                         text: root.track.artist != "" ? root.track.artist : "Unknown Artist";
                         color: root.track.artist-id > 0 && artist-touch.has-hover ? Palette.accent : Palette.muted;
                         font-size: 12px;
                         overflow: elide;
                     }
+
                     artist-touch := TouchArea {
                         clicked => {
                             if root.track.artist-id > 0 {
@@ -294,21 +659,27 @@ component TrackRowItem inherits Rectangle {
                     }
                 }
 
-                if root.track.album != "" : Text {
+                if root.track.album != "": Text {
                     text: " · ";
                     color: Palette.muted;
                     font-size: 12px;
                 }
 
-                if root.track.album != "" : Rectangle {
-                    width: album-text.preferred-width;
+                if root.track.album != "": Rectangle {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
                     background: transparent;
                     album-text := Text {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        height: parent.height;
                         text: root.track.album;
                         color: root.track.album-id > 0 && album-touch.has-hover ? Palette.accent : Palette.muted;
                         font-size: 12px;
                         overflow: elide;
                     }
+
                     album-touch := TouchArea {
                         clicked => {
                             if root.track.album-id > 0 { root.open-album(root.track.album-id); }
@@ -316,7 +687,7 @@ component TrackRowItem inherits Rectangle {
                     }
                 }
 
-                if root.track.subtitle != "" : Text {
+                if root.track.subtitle != "": Text {
                     text: root.track.album != "" || root.track.artist != "" ? " · \{root.track.subtitle}" : root.track.subtitle;
                     color: Palette.muted;
                     font-size: 12px;
@@ -334,7 +705,7 @@ component TrackRowItem inherits Rectangle {
         }
 
         Rectangle {
-            width: 44px;
+            width: RowArtwork.window-width < 1300px ? 32px : 44px;
             height: 24px;
             border-radius: 6px;
             background: next-touch.has-hover ? Palette.accent-soft : transparent;
@@ -348,6 +719,7 @@ component TrackRowItem inherits Rectangle {
             }
 
             next-touch := TouchArea {
+                enabled: RowArtwork.playback-available;
                 clicked => {
                     root.play-next(root.track.id);
                 }
@@ -355,7 +727,7 @@ component TrackRowItem inherits Rectangle {
         }
 
         Rectangle {
-            width: 44px;
+            width: RowArtwork.window-width < 1300px ? 32px : 44px;
             height: 24px;
             border-radius: 6px;
             background: queue-touch.has-hover ? Palette.accent-soft : transparent;
@@ -369,13 +741,14 @@ component TrackRowItem inherits Rectangle {
             }
 
             queue-touch := TouchArea {
+                enabled: RowArtwork.playback-available;
                 clicked => {
                     root.enqueue(root.track.id);
                 }
             }
         }
 
-        if root.show-add : Rectangle {
+        if root.show-add: Rectangle {
             width: 28px;
             height: 24px;
             border-radius: 6px;
@@ -396,7 +769,7 @@ component TrackRowItem inherits Rectangle {
             }
         }
 
-        if root.show-remove : Rectangle {
+        if root.show-remove: Rectangle {
             width: 24px;
             height: 24px;
             border-radius: 6px;
@@ -461,7 +834,7 @@ component TrackRowItem inherits Rectangle {
 
         Text {
             text: root.track.duration;
-            width: 52px;
+            width: RowArtwork.window-width < 1300px ? 48px : 52px;
             color: Palette.muted;
             font-size: 12px;
             horizontal-alignment: right;
@@ -473,6 +846,7 @@ component TrackRowItem inherits Rectangle {
 // A whole page of tracks. Every list (Tracks, History, Favourites) behaves the
 // same way, so the row wiring lives in one place instead of three copies.
 component TrackList inherits ScrollView {
+    vertical-stretch: 1;
     in property <[TrackRow]> rows;
     in property <string> empty-message: "";
     in property <bool> show-remove: false;
@@ -486,17 +860,20 @@ component TrackList inherits ScrollView {
     callback open-album(int);
     callback open-artist(int, string);
     callback add-to-playlist(int, string);
+    in property <bool> has-more: false;
+    callback load-more();
     callback remove(int);
 
     VerticalLayout {
+        alignment: start;
         padding: 24px;
         spacing: 2px;
 
-        if root.rows.length == 0 : EmptyState {
+        if root.rows.length == 0: EmptyState {
             message: root.empty-message;
         }
 
-        for item[index] in root.rows : TrackRowItem {
+        for item[index] in root.rows: TrackRowItem {
             track: item;
             position: index + 1;
             show-index: true;
@@ -511,6 +888,11 @@ component TrackList inherits ScrollView {
             open-artist(id, name) => { root.open-artist(id, name); }
             add-to-playlist(id, title) => { root.add-to-playlist(id, title); }
             remove(id) => { root.remove(id); }
+        }
+        if root.has-more: ActionButton {
+            label: "Load more tracks";
+            primary: false;
+            clicked => { root.load-more(); }
         }
     }
 }
@@ -545,7 +927,7 @@ component PlaylistCard inherits Rectangle {
             horizontal-stretch: 1;
         }
 
-        if root.playlist.smart : Rectangle {
+        if root.playlist.smart: Rectangle {
             height: 20px;
             width: 48px;
             border-radius: 10px;
@@ -596,6 +978,7 @@ component RuleEditor inherits Rectangle {
     background: Palette.panel;
 
     rules-layout := VerticalLayout {
+        alignment: start;
         padding: 16px;
         spacing: 10px;
 
@@ -606,7 +989,7 @@ component RuleEditor inherits Rectangle {
             font-weight: 600;
         }
 
-        if root.show-name : LineEdit {
+        if root.show-name: LineEdit {
             text: root.name;
             placeholder-text: "Smart playlist name";
             edited(text) => {
@@ -776,6 +1159,7 @@ component PlaylistPicker inherits Rectangle {
         }
 
         VerticalLayout {
+            alignment: start;
             padding: 16px;
             spacing: 10px;
 
@@ -793,7 +1177,7 @@ component PlaylistPicker inherits Rectangle {
                 overflow: elide;
             }
 
-            if root.playlists.length == 0 : Text {
+            if root.playlists.length == 0: Text {
                 text: "No playlists yet. Create one on the Playlists page first.";
                 color: Palette.muted;
                 font-size: 12px;
@@ -804,10 +1188,11 @@ component PlaylistPicker inherits Rectangle {
             ScrollView {
                 vertical-stretch: 1;
 
-                if root.playlists.length > 0 : VerticalLayout {
+                if root.playlists.length > 0: VerticalLayout {
+                    alignment: start;
                     spacing: 4px;
 
-                    for playlist in root.playlists : Rectangle {
+                    for playlist in root.playlists: Rectangle {
                         height: 40px;
                         border-radius: 6px;
                         background: pick-touch.has-hover ? Palette.panel-hover : transparent;
@@ -880,6 +1265,7 @@ component AlbumCard inherits Rectangle {
     }
 
     VerticalLayout {
+
         padding: 14px;
         spacing: 4px;
         alignment: start;
@@ -890,15 +1276,21 @@ component AlbumCard inherits Rectangle {
             font-size: 14px;
             overflow: elide;
         }
+
         Rectangle {
             height: 16px;
             background: transparent;
             artist-text := Text {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
                 text: root.album.subtitle;
                 color: root.album.artist-id > 0 && artist-touch.has-hover ? Palette.accent : Palette.muted;
                 font-size: 12px;
                 overflow: elide;
             }
+
             artist-touch := TouchArea {
                 clicked => {
                     if root.album.artist-id > 0 {
@@ -909,6 +1301,7 @@ component AlbumCard inherits Rectangle {
                 }
             }
         }
+
         Text {
             text: root.album.meta;
             color: Palette.muted;
@@ -918,191 +1311,214 @@ component AlbumCard inherits Rectangle {
     }
 }
 
-component TransportBar inherits Rectangle {
-    in property <string> title: "Nothing playing";
-    in property <string> subtitle: "";
+component SidebarPlayer inherits Rectangle {
+    in property <float> scale: 1;
+    in property <image> artwork;
+    in property <image> previous-artwork;
+    in property <float> art-blend: 1;
     in property <bool> playing: false;
+    in property <bool> available: false;
+    in property <bool> seekable: false;
     in property <int> position-ms: 0;
     in property <int> duration-ms: 0;
     in property <string> position-label: "0:00";
     in property <string> duration-label: "0:00";
-    in property <float> volume: 1.0;
-    in property <image> artwork;
-    in property <int> current-count: 0;
-    in property <int> upcoming-count: 0;
-    in property <int> history-count: 0;
-    in property <int> album-id: 0;
-    in property <int> artist-id: 0;
-    in property <string> artist-name: "";
-
+    in-out property <float> volume: 1;
+    in property <bool> muted: false;
+    in property <bool> shuffle: false;
+    in property <int> repeat: 0;
+    callback open-player();
     callback toggle();
     callback previous();
     callback next();
     callback seek(int);
+    callback seeking(bool);
     callback volume-changed(float);
-    callback queue-toggle();
-    callback lyrics-toggle();
-    callback open-album(int);
-    callback open-artist(int, string);
+    callback mute();
+    callback shuffle-toggle();
+    callback repeat-toggle();
+    height: 446px * root.scale;
+    background: transparent;
 
-    height: 90px;
-    background: Palette.sidebar;
-    border-width: 1px;
-    border-color: Palette.stroke;
-
-    HorizontalLayout {
-        padding-left: 24px;
-        padding-right: 24px;
-        spacing: 16px;
-
-        Rectangle {
-            width: 56px;
-            height: 56px;
-            border-radius: 4px;
-            background: Palette.stroke;
-            clip: true;
-
-            Image {
-                source: root.artwork;
-                width: parent.width;
-                height: parent.height;
-                image-fit: cover;
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: 250px * root.scale;
+        border-radius: Palette.radius * root.scale;
+        background: Palette.panel;
+        clip: true;
+        accessible-role: button;
+        accessible-label: "Now playing";
+        forward-focus: cover-focus;
+        cover-focus := FocusScope {
+            width: 0px;
+            height: 0px;
+            key-pressed(event) => {
+                if (event.text == Key.Return || event.text == Key.Space) { root.open-player(); return accept; }
+                return reject;
             }
         }
 
-        VerticalLayout {
-            width: 210px;
-            alignment: center;
-            spacing: 2px;
-
-            Rectangle {
-                height: 18px;
-                background: transparent;
-                title-text := Text {
-                    text: root.title;
-                    color: root.album-id > 0 && title-touch.has-hover ? Palette.accent : Palette.text;
-                    font-size: 13px;
-                    font-weight: 700;
-                    overflow: elide;
-                }
-                title-touch := TouchArea {
-                    clicked => {
-                        if root.album-id > 0 { root.open-album(root.album-id); }
-                    }
-                }
-            }
-            Rectangle {
-                height: 16px;
-                background: transparent;
-                subtitle-text := Text {
-                    text: root.subtitle;
-                    color: root.artist-id > 0 && subtitle-touch.has-hover ? Palette.accent : Palette.muted;
-                    font-size: 11px;
-                    overflow: elide;
-                }
-                subtitle-touch := TouchArea {
-                    clicked => {
-                        if root.artist-id > 0 { root.open-artist(root.artist-id, root.artist-name); }
-                    }
-                }
-            }
+        TouchArea {
+            clicked => { root.open-player(); }
         }
 
-        ActionButton {
-            label: "Prev";
-            primary: false;
-            clicked => {
-                root.previous();
-            }
+        Image {
+            source: root.previous-artwork;
+            width: parent.width;
+            height: parent.height;
+            image-fit: cover;
+            opacity: 1 - root.art-blend;
         }
 
-        ActionButton {
-            label: root.playing ? "Pause" : "Play";
-            clicked => {
-                root.toggle();
-            }
+        Image {
+            source: root.artwork;
+            opacity: root.art-blend;
+            width: parent.width;
+            height: parent.height;
+            image-fit: cover;
         }
 
-        ActionButton {
-            label: "Next";
-            primary: false;
-            clicked => {
-                root.next();
-            }
+        if root.artwork.width == 0: Image {
+            source: @image-url("../../../assets/design/logo.svg");
+            width: 56px * root.scale;
+            height: 68px * root.scale;
+            opacity: 0.5 * root.art-blend;
+        }
+    }
+
+    Rectangle {
+        y: 258px * root.scale;
+        height: 90px * root.scale;
+        width: parent.width;
+        background: Palette.sidebar;
+        border-radius: Palette.radius * root.scale;
+        scrub := Slider {
+            x: 10px * root.scale;
+            y: 0px;
+            width: parent.width - 20px * root.scale;
+            height: 24px * root.scale;
+            minimum: 0;
+            maximum: max(1, root.duration-ms);
+            step: 5000;
+            value: root.position-ms;
+            enabled: root.available && root.seekable && root.duration-ms > 0;
+            label: "Playback position";
+            changed(value) => { root.seek(round(value)); }
+            changed pressed => { root.seeking(self.pressed); }
         }
 
-        VerticalLayout {
-            horizontal-stretch: 1;
-            alignment: center;
-            spacing: 4px;
+        Text {
+            x: 10px * root.scale;
+            y: 22px * root.scale;
+            text: root.position-label;
+            color: Palette.text;
+            font-size: 10px * root.scale;
+        }
 
-            progress := Rectangle {
-                height: 4px;
-                border-radius: 2px;
-                background: Palette.stroke;
+        Text {
+            x: parent.width - self.width - 10px * root.scale;
+            y: 22px * root.scale;
+            text: root.duration-label;
+            color: Palette.text;
+            font-size: 10px * root.scale;
+        }
 
-                Rectangle {
-                    width: root.duration-ms > 0 ? progress.width * (root.position-ms * 1.0 / root.duration-ms) : 0px;
-                    border-radius: 2px;
-                    background: Palette.accent;
-                }
-
-                TouchArea {
-                    clicked => {
-                        if (root.duration-ms > 0) {
-                            root.seek(floor(root.duration-ms * (self.mouse-x / progress.width)));
-                        }
-                    }
-                }
+        HorizontalLayout {
+            x: 27px * root.scale;
+            y: 24px * root.scale;
+            width: parent.width - 54px * root.scale;
+            height: 44px * root.scale;
+            alignment: space-between;
+            IconButton {
+                icon: @image-url("../../../assets/design/previous.svg");
+                label: "Previous track";
+                enabled: root.available;
+                width: 44px * root.scale;
+                height: 44px * root.scale;
+                clicked => { root.previous(); }
             }
 
-            HorizontalLayout {
-                Text {
-                    text: root.position-label;
-                    color: Palette.muted;
-                    font-size: 10px;
-                }
-                Rectangle {
-                    horizontal-stretch: 1;
-                }
-                Text {
-                    text: root.duration-label;
-                    color: Palette.muted;
-                    font-size: 10px;
-                }
+            IconButton {
+                icon: root.playing ? @image-url("../../../assets/design/pause.svg") : @image-url("../../../assets/design/play.svg");
+                label: root.playing ? "Pause" : "Play";
+                enabled: root.available;
+                width: 44px * root.scale;
+                height: 44px * root.scale;
+                clicked => { root.toggle(); }
+            }
+
+            IconButton {
+                icon: @image-url("../../../assets/design/next.svg");
+                label: "Next track";
+                enabled: root.available;
+                width: 44px * root.scale;
+                height: 44px * root.scale;
+                clicked => { root.next(); }
+            }
+        }
+    }
+
+    changed position-ms => { if (!scrub.pressed) { scrub.value = root.position-ms; } }
+    Rectangle {
+        y: 356px * root.scale;
+        height: 90px * root.scale;
+        width: parent.width;
+        background: Palette.sidebar;
+        border-radius: Palette.radius * root.scale;
+        HorizontalLayout {
+            x: 27px * root.scale;
+            y: 20px * root.scale;
+            width: parent.width - 54px * root.scale;
+            height: 44px * root.scale;
+            alignment: space-between;
+            IconButton {
+                icon: @image-url("../../../assets/design/repeat.svg");
+                label: "Cycle repeat mode";
+                active: root.repeat > 0;
+                width: 44px * root.scale;
+                height: 44px * root.scale;
+                clicked => { root.repeat-toggle(); }
+            }
+
+            IconButton {
+                icon: @image-url("../../../assets/design/shuffle.svg");
+                label: "Shuffle";
+                active: root.shuffle;
+                width: 44px * root.scale;
+                height: 44px * root.scale;
+                clicked => { root.shuffle-toggle(); }
+            }
+
+            IconButton {
+                icon: @image-url("../../../assets/design/volume.svg");
+                label: root.muted ? "Unmute" : "Mute";
+                active: root.muted;
+                width: 44px * root.scale;
+                height: 44px * root.scale;
+                clicked => { root.mute(); }
             }
         }
 
         Slider {
-            width: 90px;
+            x: 12px * root.scale;
+            y: 56px * root.scale;
+            width: parent.width - 24px * root.scale;
+            height: 24px * root.scale;
+            value <=> root.volume;
             minimum: 0;
             maximum: 1;
-            value: root.volume;
-            changed(value) => {
-                root.volume-changed(value);
-            }
-        }
-
-        ActionButton {
-            label: "Lyrics";
-            primary: false;
-            clicked => {
-                root.lyrics-toggle();
-            }
-        }
-
-        ActionButton {
-            label: "Queue";
-            primary: false;
-            clicked => {
-                root.queue-toggle();
-            }
+            step: 0.05;
+            label: "Volume";
+            changed(value) => { root.volume-changed(value); }
         }
     }
 }
 
 component QueuePanel inherits Rectangle {
     in property <[QueueRow]> entries;
+    in property <[image]> artworks;
     in-out property <int> drag-target: 0;
 
     callback remove(int);
@@ -1110,100 +1526,153 @@ component QueuePanel inherits Rectangle {
     callback open-album(int);
     callback open-artist(int, string);
 
-    width: 300px;
+    in property <float> scale: 1;
+    in property <string> context: "";
+    width: 374px;
+    border-radius: Palette.panel-radius;
     background: Palette.sidebar;
 
-    VerticalLayout {
-        padding: 14px;
-        spacing: 8px;
+    Text {
+        x: 12px * root.scale;
+        y: 6px * root.scale;
+        width: parent.width - 24px * root.scale;
+        height: 28px * root.scale;
+        text: "Playing from:";
+        color: Palette.text;
+        font-size: 24px * root.scale;
+    }
 
-        Text {
-            text: "Queue";
-            color: Palette.text;
-            font-size: 15px;
-            font-weight: 600;
-        }
+    Text {
+        x: 12px * root.scale;
+        y: 42px * root.scale;
+        width: parent.width - 24px * root.scale;
+        height: 38px * root.scale;
+        text: root.context == "" ? "Library" : root.context;
+        color: Palette.text;
+        font-size: 32px * root.scale;
+        font-weight: 700;
+        overflow: elide;
+    }
 
-        Text {
-            text: "Drag a row to reorder. Right-click the title for its album, or the artist for their page.";
-            color: Palette.muted;
-            font-size: 10px;
-            wrap: word-wrap;
-        }
+    Text {
+        x: 12px * root.scale;
+        y: 96px * root.scale;
+        width: parent.width - 24px * root.scale;
+        height: 40px * root.scale;
+        text: "Queue";
+        color: Palette.text;
+        font-size: 32px * root.scale;
+        font-weight: 600;
+    }
 
-        if root.entries.length == 0 : Text {
-            text: "Nothing queued.";
-            color: Palette.muted;
-            font-size: 11px;
-            wrap: word-wrap;
-        }
+    if root.entries.length == 0: Text {
+        x: 12px * root.scale;
+        y: 150px * root.scale;
+        width: parent.width - 24px * root.scale;
+        text: "Nothing queued.";
+        color: Palette.muted;
+        font-size: 13px;
+    }
+    ScrollView {
+        x: 12px * root.scale;
+        y: 142px * root.scale;
+        width: parent.width - 24px * root.scale;
+        height: parent.height - self.y - 12px * root.scale;
+        vertical-stretch: 1;
+        horizontal-scrollbar-policy: always-off;
+        VerticalLayout {
+            alignment: start;
+            spacing: 8px;
+            for entry[index] in root.entries: Rectangle {
+                height: 64px * root.scale;
+                border-radius: 8px;
+                background: drag-touch.has-hover ? Palette.panel-hover : Palette.panel;
 
-        for entry[index] in root.entries : Rectangle {
-            height: 46px;
-            border-radius: 8px;
-            background: drag-touch.has-hover ? Palette.panel-hover : Palette.panel;
-
-            drag-touch := TouchArea {
-                moved => {
-                    root.drag-target = max(0, min(root.entries.length - 1, index + floor((self.mouse-y - 23px) / 46px)));
-                }
-                pointer-event(event) => {
-                    if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
-                        root.move(index, root.drag-target);
+                drag-touch := TouchArea {
+                    moved => {
+                        if (self.pressed) {
+                            root.drag-target = max(0, min(root.entries.length - 1, index + round((self.mouse-y - self.pressed-y) / (64px * root.scale + 8px))));
+                        }
                     }
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) { root.drag-target = index; }
+                        if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
+                            root.move(index, root.drag-target);
+                        }
                     // Navigation is right-click only in the queue, so a casual
                     // left click still means "reorder", not "leave this view".
                     if (event.kind == PointerEventKind.up && event.button == PointerEventButton.right) {
-                        if (self.mouse-y < 23px) {
-                            if (entry.album-id > 0) { root.open-album(entry.album-id); }
-                        } else if (entry.artist-id > 0) {
-                            root.open-artist(entry.artist-id, entry.artist);
+                            if (self.mouse-y < 23px) {
+                                if (entry.album-id > 0) { root.open-album(entry.album-id); }
+                            } else if (entry.artist-id > 0) {
+                                root.open-artist(entry.artist-id, entry.artist);
+                            }
                         }
                     }
                 }
-            }
 
-            VerticalLayout {
-                x: 12px;
-                width: parent.width - 48px;
-                alignment: center;
-                spacing: 1px;
+                Rectangle {
+                    x: 0px;
+                    y: 0px;
+                    width: 64px * root.scale;
+                    height: 64px * root.scale;
+                    border-radius: Palette.radius * root.scale;
+                    background: Palette.panel;
+                    clip: true;
+                    Image {
+                        source: index < root.artworks.length ? root.artworks[index] : @image-url("../../../assets/design/logo.svg");
+                        width: parent.width;
+                        height: parent.height;
+                        image-fit: cover;
+                    }
+                }
 
                 Text {
+                    x: 76px * root.scale;
+                    y: -3px * root.scale;
+                    width: parent.width - 108px * root.scale;
+                    height: 46px * root.scale;
                     text: entry.title;
                     color: Palette.text;
-                    font-size: 12px;
+                    font-size: 35.264px * root.scale;
+                    font-weight: 600;
                     overflow: elide;
                 }
+
                 Text {
-                    text: entry.subtitle;
+                    x: 77px * root.scale;
+                    y: 31px * root.scale;
+                    width: parent.width - 109px * root.scale;
+                    height: 28px * root.scale;
+                    text: entry.artist;
                     color: Palette.muted;
-                    font-size: 10px;
+                    font-size: 17.632px * root.scale;
+                    font-weight: 600;
                     overflow: elide;
                 }
-            }
 
-            remove-touch := TouchArea {
-                x: parent.width - 36px;
-                y: 10px;
-                width: 26px;
-                height: 26px;
+                remove-touch := TouchArea {
+                    x: parent.width - 36px;
+                    y: 10px;
+                    width: 26px;
+                    height: 26px;
 
-                clicked => {
-                    root.remove(index);
+                    clicked => {
+                        root.remove(index);
+                    }
                 }
-            }
 
-            Text {
-                text: "x";
-                x: parent.width - 36px;
-                y: 10px;
-                width: 26px;
-                height: 26px;
-                color: remove-touch.has-hover ? Palette.text : Palette.muted;
-                font-size: 12px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+                Text {
+                    text: "x";
+                    x: parent.width - 36px;
+                    y: 10px;
+                    width: 26px;
+                    height: 26px;
+                    color: remove-touch.has-hover ? Palette.text : Palette.muted;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
             }
         }
     }
@@ -1217,10 +1686,12 @@ component LyricsPanel inherits Rectangle {
     in property <int> active: -1;
 
     callback close();
-    callback fetch();
 
-    width: 320px;
+    width: 374px;
     background: Palette.sidebar;
+    border-radius: Palette.panel-radius;
+    in-out property <bool> following: true;
+    property <length> auto-y: 0px;
 
     // Keep the line playback reached in view. Slint has no query for the position
     // of one repeated child, so the active row reports its own offset and the pane
@@ -1238,26 +1709,27 @@ component LyricsPanel inherits Rectangle {
     }
 
     function follow() {
-        if (root.active < 0) {
-            return;
-        }
-        lyrics-view.content-y = -max(
+        if (root.active < 0 || !root.following) { return; }
+        root.auto-y = -max(
             0px,
             min(
                 root.active-line-y - (lyrics-view.height - root.active-line-height) / 3,
-                lyrics-view.content-height - lyrics-view.height
-            )
-        );
+                lyrics-view.content-height - lyrics-view.height));
+        lyrics-view.content-y = root.auto-y;
     }
+
+    changed lines => { root.following = true; root.auto-y = 0px; lyrics-view.content-y = 0px; }
 
     // A lyric that starts over, or goes away, begins at the top again.
     changed active => {
         if (active < 0) {
+            root.auto-y = 0px;
             lyrics-view.content-y = 0;
         }
     }
 
     VerticalLayout {
+        alignment: stretch;
         padding: 14px;
         spacing: 8px;
 
@@ -1270,6 +1742,7 @@ component LyricsPanel inherits Rectangle {
                 horizontal-stretch: 1;
                 vertical-alignment: center;
             }
+
             ActionButton {
                 label: "Close";
                 primary: false;
@@ -1280,11 +1753,9 @@ component LyricsPanel inherits Rectangle {
         }
 
         ActionButton {
-            label: "Fetch lyrics";
+            label: root.following ? "Following playback" : "Follow playback";
             primary: false;
-            clicked => {
-                root.fetch();
-            }
+            clicked => { root.following = true; root.follow(); }
         }
 
         Text {
@@ -1294,42 +1765,42 @@ component LyricsPanel inherits Rectangle {
             wrap: word-wrap;
         }
 
-        lyrics-view := ScrollView {
-            // Rows are measured a pass after the line that triggered the follow, so
-            // settle the offset again once the content reaches its real height.
-            changed content-height => {
-                root.follow();
-            }
-            changed height => {
-                root.follow();
-            }
+        lyrics-viewport := Rectangle {
+            vertical-stretch: 1;
+            min-height: 0px;
+            lyrics-view := ScrollView {
+                vertical-stretch: 1;
+                width: parent.width;
+                height: parent.height;
+                content-width: self.visible-width;
+                content-height: lyrics-column.preferred-height;
+                horizontal-scrollbar-policy: always-off;
+                scrolled => { root.following = false; }
+                changed content-height => { root.follow(); }
+                changed height => { root.follow(); }
 
-            if root.lines.length > 0 : VerticalLayout {
-                spacing: 6px;
-                for line[index] in root.lines : Text {
-                    property <bool> current: index == root.active;
-
-                    text: line;
-                    color: current ? Palette.accent : Palette.muted;
-                    font-size: 12px;
-                    font-weight: current ? 600 : 400;
-                    wrap: word-wrap;
-
-                    // Layout owns this row's position; hand it over whenever the row
-                    // moves or playback arrives at it, so the view can follow along.
-                    changed y => {
-                        root.follow-line(index, self.y, self.height);
+                lyrics-column := VerticalLayout {
+                    width: lyrics-view.visible-width;
+                    height: self.preferred-height;
+                    alignment: start;
+                    spacing: 6px;
+                    for line[index] in root.lines: Text {
+                        property <bool> current: index == root.active;
+                        text: line;
+                        color: current ? Palette.accent : Palette.muted;
+                        font-size: 12px;
+                        font-weight: current ? 600 : 400;
+                        wrap: word-wrap;
+                        changed y => { root.follow-line(index, self.y, self.height); }
+                        changed current => { root.follow-line(index, self.y, self.height); }
                     }
-                    changed current => {
-                        root.follow-line(index, self.y, self.height);
+                    if root.lines.length == 0: Text {
+                        text: root.text;
+                        color: Palette.text;
+                        font-size: 12px;
+                        wrap: word-wrap;
                     }
                 }
-            }
-            if root.lines.length == 0 : Text {
-                text: root.text;
-                color: Palette.text;
-                font-size: 12px;
-                wrap: word-wrap;
             }
         }
     }
@@ -1351,6 +1822,7 @@ component OnboardingOverlay inherits Rectangle {
     callback finish();
     callback folder-path-changed(string);
     callback add-folder(string);
+    callback remove-folder(int);
     callback browse-folder();
     callback tier-changed(string);
     callback bitrate-changed(float);
@@ -1359,6 +1831,7 @@ component OnboardingOverlay inherits Rectangle {
     background: Palette.bg;
 
     VerticalLayout {
+        alignment: start;
         padding: 64px;
         spacing: 18px;
 
@@ -1369,32 +1842,32 @@ component OnboardingOverlay inherits Rectangle {
             letter-spacing: 2px;
         }
 
-        if root.step == 0 : Text {
+        if root.step == 0: Text {
             text: "Welcome";
             color: Palette.text;
             font-size: 30px;
             font-weight: 600;
         }
-        if root.step == 0 : Text {
+        if root.step == 0: Text {
             text: "Sonora plays the files you already own: no account, no subscription, no web view. It indexes your folders, reads the tags, and keeps the library in a local database.";
             color: Palette.muted;
             font-size: 14px;
             wrap: word-wrap;
         }
 
-        if root.step == 1 : Text {
+        if root.step == 1: Text {
             text: "Where is your music?";
             color: Palette.text;
             font-size: 32px;
             font-weight: 700;
         }
-        if root.step == 1 : Text {
+        if root.step == 1: Text {
             text: "Point Sonora at one or more folders. Subfolders are included, and re-scanning only touches files that changed.";
             color: Palette.muted;
             font-size: 13px;
             wrap: word-wrap;
         }
-        if root.step == 1 : HorizontalLayout {
+        if root.step == 1: HorizontalLayout {
             spacing: 10px;
             LineEdit {
                 text: root.folder-path;
@@ -1404,6 +1877,7 @@ component OnboardingOverlay inherits Rectangle {
                 }
                 horizontal-stretch: 1;
             }
+
             ActionButton {
                 label: "Browse…";
                 primary: false;
@@ -1411,6 +1885,7 @@ component OnboardingOverlay inherits Rectangle {
                     root.browse-folder();
                 }
             }
+
             ActionButton {
                 label: "Add folder";
                 clicked => {
@@ -1418,25 +1893,25 @@ component OnboardingOverlay inherits Rectangle {
                 }
             }
         }
-        if root.step == 1 : Text {
+        if root.step == 1: Text {
             text: "\{root.folder-count} folders indexed so far.";
             color: Palette.muted;
             font-size: 12px;
         }
 
-        if root.step == 2 : Text {
+        if root.step == 2: Text {
             text: "Which files do you prefer?";
             color: Palette.text;
             font-size: 32px;
             font-weight: 700;
         }
-        if root.step == 2 : Text {
+        if root.step == 2: Text {
             text: "This governs downloads, device sync and what the cache keeps. It never changes how files already in your library are played.";
             color: Palette.muted;
             font-size: 13px;
             wrap: word-wrap;
         }
-        if root.step == 2 : HorizontalLayout {
+        if root.step == 2: HorizontalLayout {
             spacing: 10px;
             ActionButton {
                 label: "Lossless";
@@ -1445,6 +1920,7 @@ component OnboardingOverlay inherits Rectangle {
                     root.tier-changed("lossless");
                 }
             }
+
             ActionButton {
                 label: "Lossy";
                 primary: root.format-tier == "lossy";
@@ -1453,12 +1929,12 @@ component OnboardingOverlay inherits Rectangle {
                 }
             }
         }
-        if root.step == 2 && root.format-tier == "lossy" : Text {
+        if root.step == 2 && root.format-tier == "lossy": Text {
             text: root.bitrate >= 1411 ? "Bitrate ceiling: unlimited — a maximum, never a target." : "Bitrate ceiling: \{root.bitrate-shown} kbit/s — a maximum, never a target.";
             color: Palette.muted;
             font-size: 12px;
         }
-        if root.step == 2 && root.format-tier == "lossy" : HorizontalLayout {
+        if root.step == 2 && root.format-tier == "lossy": HorizontalLayout {
             spacing: 8px;
             alignment: center;
 
@@ -1470,12 +1946,14 @@ component OnboardingOverlay inherits Rectangle {
                     root.bitrate-changed(root.bitrate);
                 }
             }
+
             Slider {
                 horizontal-stretch: 1;
                 minimum: 32;
                 maximum: 1411;
                 value <=> root.bitrate;
             }
+
             StepButton {
                 label: "+";
                 enabled: root.bitrate < 1411;
@@ -1486,19 +1964,19 @@ component OnboardingOverlay inherits Rectangle {
             }
         }
 
-        if root.step == 3 : Text {
+        if root.step == 3: Text {
             text: "Optional: Last.fm";
             color: Palette.text;
             font-size: 32px;
             font-weight: 700;
         }
-        if root.step == 3 : Text {
+        if root.step == 3: Text {
             text: "Artwork, lyrics and metadata work without any key. A free Last.fm key only adds listener tags and scrobbling, and you can add it later in Settings.";
             color: Palette.muted;
             font-size: 13px;
             wrap: word-wrap;
         }
-        if root.step == 3 : LineEdit {
+        if root.step == 3: LineEdit {
             text: root.lastfm-key;
             placeholder-text: "Last.fm API key (optional)";
             edited(text) => {
@@ -1519,7 +1997,7 @@ component OnboardingOverlay inherits Rectangle {
         HorizontalLayout {
             spacing: 10px;
 
-            if root.step > 0 : ActionButton {
+            if root.step > 0: ActionButton {
                 label: "Back";
                 primary: false;
                 clicked => {
@@ -1555,8 +2033,8 @@ component OnboardingOverlay inherits Rectangle {
 
 export component AppWindow inherits Window {
     title: "Sonora";
-    preferred-width: 1240px;
-    preferred-height: 800px;
+    preferred-width: 1440px;
+    preferred-height: 900px;
     min-width: 920px;
     min-height: 600px;
     background: Palette.bg;
@@ -1572,10 +2050,13 @@ export component AppWindow inherits Window {
     in property <string> library-duration: "0:00";
     in property <[TrackRow]> recent-tracks;
     in property <[TrackRow]> all-tracks;
+    in property <int> tracks-limit: 500;
+    callback load-more-tracks();
     in property <[TrackRow]> most-played-tracks;
     in property <[TrackRow]> history-tracks;
     in property <[TrackRow]> favourite-tracks;
     in property <[AlbumRow]> albums;
+    in property <[ArtistRow]> artists;
     in property <[TrackRow]> album-tracks;
     in property <string> album-title: "";
     in property <string> album-artist: "";
@@ -1587,7 +2068,7 @@ export component AppWindow inherits Window {
     in property <string> artist-name: "";
     in property <string> artist-meta: "";
     in property <string> artist-back: "albums";
-    in property <[string]> folders;
+    in property <[FolderRow]> folders;
     in property <[PlaylistRow]> playlists;
     in property <[TrackRow]> playlist-tracks;
     in property <string> playlist-title: "";
@@ -1616,16 +2097,43 @@ export component AppWindow inherits Window {
     in property <int> now-playing-artist-id: 0;
     in property <int> now-playing-album-id: 0;
     in property <bool> playing: false;
+    in-out property <int> pending-track: 0;
     in property <int> position-ms: 0;
     in property <int> duration-ms: 0;
     in property <string> position-label: "0:00";
     in property <string> duration-label: "0:00";
-    in property <float> volume: 1.0;
+    in-out property <float> volume: 1.0;
+    in property <bool> seekable: false;
+    in-out property <bool> seeking: false;
+    in property <bool> muted: false;
+    in property <bool> shuffle: false;
+    in property <int> repeat: 0;
+    in property <int> lyrics-track: 0;
+    in property <int> artwork-track: 0;
+    in-out property <int> artwork-generation: 0;
+    in property <[image]> queue-artworks;
+    in property <image> backdrop;
+    in property <image> panel-backdrop;
+    in property <image> previous-artwork;
+    in property <image> previous-backdrop;
+    in property <image> previous-panel-backdrop;
+    in-out property <bool> art-transition: true;
+    private property <float> art-blend: root.art-transition ? 1 : 0;
+    animate art-blend {
+        duration: root.art-transition ? 140ms : 0ms;
+        easing: ease-out;
+    }
+    private property <float> background-opacity: root.settings-cover-background ? 1 : 0;
+    animate background-opacity {
+        duration: 140ms;
+        easing: ease-out;
+    }
     in property <[QueueRow]> queue-entries;
-    in-out property <bool> queue-open: false;
+    in-out property <bool> queue-open: true;
     in-out property <bool> onboarding-open: false;
     in-out property <int> onboarding-step: 0;
     in-out property <bool> lyrics-open: false;
+    in-out property <bool> lyrics-following: true;
     in property <string> lyrics-text: "";
     in property <string> lyrics-status: "";
     in property <[string]> lyric-lines: [];
@@ -1635,6 +2143,9 @@ export component AppWindow inherits Window {
     in property <int> upcoming-count: 0;
     in property <int> history-count: 0;
 
+    in-out property <bool> settings-blur-panels: true;
+    in-out property <bool> settings-cover-background: true;
+    callback appearance-changed(bool, bool);
     in-out property <string> settings-format-tier: "lossless";
     // float, because these two drive Sliders through a two-way binding: an int
     // property could only be read by the slider, and the -/+ buttons would stop
@@ -1649,6 +2160,10 @@ export component AppWindow inherits Window {
     in-out property <string> settings-cache-folder: "";
     in-out property <bool> settings-device-sync: false;
     in-out property <string> settings-device: "";
+    in-out property <int> settings-history-retention: 7;
+    in property <string> cache-size: "Not measured";
+    in-out property <bool> cache-confirm: false;
+    in-out property <int> folder-remove-armed: 0;
     in-out property <bool> device-picker-open: false;
     in property <[string]> devices: [];
     in-out property <int> device-picker-selected: 0;
@@ -1656,6 +2171,7 @@ export component AppWindow inherits Window {
     callback section-changed(string);
     callback search-changed(string);
     callback add-folder(string);
+    callback remove-folder(int);
     callback browse-folder();
     callback rescan-requested();
 
@@ -1671,7 +2187,11 @@ export component AppWindow inherits Window {
     callback volume-changed(float);
     callback queue-move(int, int);
     callback queue-remove(int);
-    callback save-settings(string, int, int, string, int, string, string, string, string, bool, string);
+    callback save-settings(string, int, int, string, int, string, string, string, string, bool, string, int);
+    callback cache-action(bool);
+    callback mute-toggled();
+    callback shuffle-toggled();
+    callback repeat-toggled();
     callback pick-settings-folder(string);
     callback clear-settings-folder(string);
     callback pick-playback-device();
@@ -1688,7 +2208,6 @@ export component AppWindow inherits Window {
     callback onboarding-finish();
     callback run-onboarding();
     callback lyrics-toggle();
-    callback lyrics-fetch();
     callback playlist-open(int);
     callback playlist-create(string);
     callback playlist-rename(string);
@@ -1706,7 +2225,7 @@ export component AppWindow inherits Window {
 
     private property <int> bitrate-shown: round(root.settings-bitrate);
     private property <int> cache-shown: round(root.settings-cache-mib);
-    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "history" ? "History" : root.section == "favourites" ? "Favourites" : root.section == "album" ? root.album-title : root.section == "artist" ? root.artist-name : root.section == "playlists" ? "Playlists" : root.section == "playlist" ? root.playlist-title : root.section == "settings" ? "Settings" : "Library folders";
+    private property <string> page-title: root.section == "home" ? "Home" : root.section == "tracks" ? "Tracks" : root.section == "albums" ? "Albums" : root.section == "artists" ? "Artists" : root.section == "history" ? "History" : root.section == "favourites" ? "Favourites" : root.section == "album" ? root.album-title : root.section == "artist" ? root.artist-name : root.section == "playlists" ? "Playlists" : root.section == "playlist" ? root.playlist-title : root.section == "settings" ? "Settings" : "Library folders";
 
     // The picker needs the track it is adding; every row hands over its own id and
     // title, so nothing has to be looked up again.
@@ -1716,980 +2235,400 @@ export component AppWindow inherits Window {
         root.playlist-picker-open = true;
     }
 
+    changed width => { RowArtwork.window-width = root.width; }
+    changed height => { RowArtwork.window-height = root.height; }
+    private property <float> design-scale: max(0.65, min(1, min(root.width / 1920px, root.height / 1080px)));
+    private property <length> side-width: 265px * root.design-scale;
+    private property <length> rail-width: 374px * root.design-scale;
+    private property <length> content-top: 111px * root.design-scale;
+    default-font-family: "Segoe UI";
+
+    Image {
+        source: root.previous-backdrop;
+        width: root.width;
+        height: root.height;
+        image-fit: cover;
+        opacity: (1 - root.art-blend) * root.background-opacity;
+    }
+
+    Image {
+        source: root.backdrop;
+        width: root.width;
+        height: root.height;
+        image-fit: cover;
+        opacity: root.art-blend * root.background-opacity;
+    }
+
     Rectangle {
-        VerticalLayout {
+        width: root.width;
+        height: root.height;
+        background: #00000070;
+    }
+
+    PanelBackdrop {
+        x: 10px * root.design-scale;
+        y: 10px * root.design-scale;
+        width: 90px * root.design-scale;
+        height: 90px * root.design-scale;
+        scene-x: self.x;
+        scene-y: self.y;
+        canvas-width: root.width;
+        canvas-height: root.height;
+        border-radius: Palette.radius * root.design-scale;
+        active: root.settings-blur-panels && root.settings-cover-background;
+        texture: root.panel-backdrop;
+        previous-texture: root.previous-panel-backdrop;
+        blend: root.art-blend;
+    }
+
+    PanelBackdrop {
+        x: 109px * root.design-scale;
+        y: 10px * root.design-scale;
+        width: root.width - 119px * root.design-scale;
+        height: 90px * root.design-scale;
+        scene-x: self.x;
+        scene-y: self.y;
+        canvas-width: root.width;
+        canvas-height: root.height;
+        border-radius: Palette.radius * root.design-scale;
+        active: root.settings-blur-panels && root.settings-cover-background;
+        texture: root.panel-backdrop;
+        previous-texture: root.previous-panel-backdrop;
+        blend: root.art-blend;
+    }
+
+    PanelBackdrop {
+        x: 10px * root.design-scale;
+        y: root.content-top;
+        width: root.side-width;
+        height: root.height - self.y - 9px * root.design-scale;
+        scene-x: self.x;
+        scene-y: self.y;
+        canvas-width: root.width;
+        canvas-height: root.height;
+        border-radius: Palette.panel-radius * root.design-scale;
+        active: root.settings-blur-panels && root.settings-cover-background;
+        texture: root.panel-backdrop;
+        previous-texture: root.previous-panel-backdrop;
+        blend: root.art-blend;
+    }
+
+    if root.queue-open || root.lyrics-open: PanelBackdrop {
+        x: root.width - root.rail-width - 10px * root.design-scale;
+        y: root.content-top;
+        width: root.rail-width;
+        height: root.height - self.y - 9px * root.design-scale;
+        scene-x: self.x;
+        scene-y: self.y;
+        canvas-width: root.width;
+        canvas-height: root.height;
+        border-radius: Palette.panel-radius * root.design-scale;
+        active: root.settings-blur-panels && root.settings-cover-background;
+        texture: root.panel-backdrop;
+        previous-texture: root.previous-panel-backdrop;
+        blend: root.art-blend;
+    }
+    Rectangle {
+        x: 10px * root.design-scale;
+        y: 10px * root.design-scale;
+        width: 90px * root.design-scale;
+        height: 90px * root.design-scale;
+        border-radius: Palette.radius * root.design-scale;
+        background: Palette.sidebar;
+        Image {
+            source: @image-url("../../../assets/design/logo.svg");
+            width: 56px * root.design-scale;
+            height: 68px * root.design-scale;
+        }
+
+        TouchArea {
+            clicked => { root.section-changed("home"); }
+        }
+    }
+
+    Rectangle {
+        x: 109px * root.design-scale;
+        y: 10px * root.design-scale;
+        width: root.width - 119px * root.design-scale;
+        height: 90px * root.design-scale;
+        border-radius: Palette.radius * root.design-scale;
+        background: Palette.sidebar;
+        Text {
+            x: 12px * root.design-scale;
+            y: -2px * root.design-scale;
+            width: max(80px, parent.width - max(350px, 380px * root.design-scale) - 36px * root.design-scale);
+            height: 54px * root.design-scale;
+            text: root.now-playing-title;
+            color: Palette.text;
+            font-size: 40px * root.design-scale;
+            font-weight: 600;
+            overflow: elide;
+        }
+
+        Text {
+            x: 15px * root.design-scale;
+            y: 47px * root.design-scale;
+            width: max(80px, parent.width - max(350px, 380px * root.design-scale) - 36px * root.design-scale);
+            height: 32px * root.design-scale;
+            text: root.now-playing-subtitle;
+            color: Palette.text;
+            font-size: 20px * root.design-scale;
+            overflow: elide;
+        }
+
         HorizontalLayout {
-            // -------------------------------------------------------- sidebar
+            x: parent.width - self.width - 12px * root.design-scale;
+            y: (parent.height - 36px) / 2;
+            width: max(350px, 380px * root.design-scale);
+            height: 36px;
+            spacing: 10px;
+            Image {
+                source: @image-url("../../../assets/design/search.svg");
+                width: 20px;
+                height: 20px;
+            }
+
             Rectangle {
-                width: 236px;
-                background: Palette.sidebar;
-
-                VerticalLayout {
-                    padding: 18px;
-                    spacing: 6px;
-
-                    HorizontalLayout {
-                        height: 54px;
-                        spacing: 12px;
-
-                        Image {
-                            source: @image-url("../../../assets/branding/logo-mark.svg");
-                            width: 26px;
-                            height: 32px;
-                        }
-
-                        Text {
-                            text: "Sonora";
-                            color: Palette.text;
-                            font-size: 19px;
-                            font-weight: 600;
-                            vertical-alignment: center;
-                        }
-                    }
-
-                    Text {
-                        text: "LIBRARY";
-                        color: Palette.muted;
-                        font-size: 10px;
-                        letter-spacing: 1.2px;
-                        height: 30px;
-                        vertical-alignment: bottom;
-                    }
-
-                    NavItem {
-                        label: "Home";
-                        active: root.section == "home";
-                        clicked => {
-                            root.section-changed("home");
-                        }
-                    }
-                    NavItem {
-                        label: "Tracks";
-                        active: root.section == "tracks";
-                        clicked => {
-                            root.section-changed("tracks");
-                        }
-                    }
-                    NavItem {
-                        label: "Albums";
-                        active: root.section == "albums";
-                        clicked => {
-                            root.section-changed("albums");
-                        }
-                    }
-                    NavItem {
-                        label: "History";
-                        active: root.section == "history";
-                        clicked => {
-                            root.section-changed("history");
-                        }
-                    }
-                    NavItem {
-                        label: "Favourites";
-                        active: root.section == "favourites";
-                        clicked => {
-                            root.section-changed("favourites");
-                        }
-                    }
-                    NavItem {
-                        label: "Playlists";
-                        active: root.section == "playlists" || root.section == "playlist";
-                        clicked => {
-                            root.section-changed("playlists");
-                        }
-                    }
-                    NavItem {
-                        label: "Library folders";
-                        active: root.section == "folders";
-                        clicked => {
-                            root.section-changed("folders");
-                        }
-                    }
-                    NavItem {
-                        label: "Settings";
-                        active: root.section == "settings";
-                        clicked => {
-                            root.section-changed("settings");
-                        }
-                    }
-
-                    Rectangle {
-                        vertical-stretch: 1;
-                    }
-
-                    Text {
-                        text: root.status;
-                        color: Palette.muted;
-                        font-size: 11px;
-                        wrap: word-wrap;
-                    }
+                horizontal-stretch: 1;
+                min-width: 120px;
+                height: 36px;
+                search-input := LineEdit {
+                    width: parent.width;
+                    height: parent.height;
+                    text <=> root.search-text;
+                    placeholder-text: "Search your library…";
+                    accessible-label: "Search your library";
+                    edited(text) => { root.search-changed(text); }
                 }
             }
 
-            // ----------------------------------------------------------- main
+            IconButton {
+                icon: @image-url("../../../assets/design/lyrics.svg");
+                label: "Lyrics";
+                active: root.lyrics-open;
+                clicked => { root.lyrics-toggle(); }
+            }
+
+            ActionButton {
+                label: "Queue";
+                primary: false;
+                clicked => { root.queue-open = !root.queue-open; if (root.queue-open) { root.lyrics-open = false; } }
+            }
+        }
+    }
+
+    Rectangle {
+        x: 10px * root.design-scale;
+        y: root.content-top;
+        width: root.side-width;
+        height: root.height - self.y - 9px * root.design-scale;
+        border-radius: Palette.panel-radius * root.design-scale;
+        background: Palette.sidebar;
+        SidebarPlayer {
+            x: 8px * root.design-scale;
+            y: 7px * root.design-scale;
+            width: 250px * root.design-scale;
+            scale: root.design-scale;
+            artwork: root.artwork;
+            previous-artwork: root.previous-artwork;
+            art-blend: root.art-blend;
+            playing: root.playing;
+            available: root.playback-available;
+            seekable: root.seekable;
+            position-ms: root.position-ms;
+            duration-ms: root.duration-ms;
+            position-label: root.position-label;
+            duration-label: root.duration-label;
+            volume <=> root.volume;
+            muted: root.muted;
+            shuffle: root.shuffle;
+            repeat: root.repeat;
+            open-player => { root.section-changed("player"); }
+            toggle => { root.toggle-playback(); }
+            previous => { root.previous-track(); }
+            next => { root.next-track(); }
+            seek(ms) => { root.seek-requested(ms); }
+            seeking(value) => { root.seeking = value; }
+            volume-changed(value) => { root.volume-changed(value); }
+            mute => { root.mute-toggled(); }
+            shuffle-toggle => { root.shuffle-toggled(); }
+            repeat-toggle => { root.repeat-toggled(); }
+        }
+
+        ScrollView {
+            vertical-stretch: 1;
+            x: 8px * root.design-scale;
+            y: 480px * root.design-scale;
+            width: 250px * root.design-scale;
+            height: parent.height - self.y - 12px;
+            horizontal-scrollbar-policy: always-off;
             VerticalLayout {
+                alignment: start;
+                spacing: 0px;
+                NavItem {
+                    label: "Discover";
+                    scale: root.design-scale;
+                    active: root.section == "home";
+                    clicked => { root.section-changed("home"); }
+                }
+
+                NavItem {
+                    label: "Tracks";
+                    scale: root.design-scale;
+                    active: root.section == "tracks";
+                    clicked => { root.section-changed("tracks"); }
+                }
+
+                NavItem {
+                    label: "Playlists";
+                    scale: root.design-scale;
+                    active: root.section == "playlists" || root.section == "playlist" || root.section == "favourites";
+                    clicked => { root.section-changed("playlists"); }
+                }
+
+                NavItem {
+                    label: "Albums";
+                    scale: root.design-scale;
+                    active: root.section == "albums" || root.section == "album";
+                    clicked => { root.section-changed("albums"); }
+                }
+
+                NavItem {
+                    label: "Artists";
+                    scale: root.design-scale;
+                    active: root.section == "artists" || root.section == "artist";
+                    clicked => { root.section-changed("artists"); }
+                }
+
                 Rectangle {
-                    height: 64px;
-                    background: Palette.bg;
+                    height: 159px * root.design-scale;
+                }
+
+                NavItem {
+                    label: "Settings";
+                    scale: root.design-scale;
+                    active: root.section == "settings";
+                    clicked => { root.section-changed("settings"); root.cache-action(false); }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        x: 286px * root.design-scale;
+        y: root.content-top;
+        width: root.width - self.x - (root.queue-open || root.lyrics-open ? root.rail-width + 20px * root.design-scale : 10px * root.design-scale);
+        height: root.height - self.y - 33px * root.design-scale;
+        clip: true;
+        VerticalLayout {
+            alignment: stretch;
+            if root.section != "home" && root.section != "player": Text {
+                text: root.page-title;
+                color: Palette.text;
+                font-size: 24px;
+                font-weight: 600;
+                overflow: elide;
+            }
+                // --------------------------------------------------------- home
+                if root.section == "home": ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    alignment: start;
+                    padding: 24px;
+                    spacing: 18px;
 
                     HorizontalLayout {
-                        padding-left: 24px;
-                        padding-right: 24px;
-                        spacing: 12px;
-
                         Text {
-                            text: root.page-title;
+                            text: "Home";
                             color: Palette.text;
-                            font-size: 20px;
+                            font-size: 24px;
                             font-weight: 600;
-                            vertical-alignment: center;
-                        }
-
-                        Rectangle {
                             horizontal-stretch: 1;
                         }
 
-                        LineEdit {
-                            width: 280px;
-                            text: root.search-text;
-                            edited(text) => {
-                                root.search-text = text;
-                                root.search-changed(text);
-                            }
-                        }
-
                         ActionButton {
-                            label: root.busy ? "Scanning…" : "Rescan library";
+                            label: "History";
                             primary: false;
-                            clicked => {
-                                root.rescan-requested();
-                            }
+                            clicked => { root.section-changed("history"); }
                         }
                     }
-                }
 
-                // --------------------------------------------------------- home
-                if root.section == "home" : ScrollView {
-                    VerticalLayout {
-                        padding: 24px;
-                        spacing: 18px;
+                    if parent.width >= 760px: HorizontalLayout {
+                        spacing: 12px;
 
-                        HorizontalLayout {
-                            spacing: 12px;
+                        StatCard {
+                            value: "\{root.track-count}";
+                            caption: "Tracks";
+                            horizontal-stretch: 1;
+                        }
 
+                        StatCard {
+                            value: "\{root.album-count}";
+                            caption: "Albums";
+                            horizontal-stretch: 1;
+                        }
+
+                        StatCard {
+                            value: "\{root.artist-count}";
+                            caption: "Artists";
+                            horizontal-stretch: 1;
+                        }
+
+                        StatCard {
+                            value: root.library-duration;
+                            caption: "Total listening time";
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    if parent.width < 760px: GridLayout {
+                        spacing: 12px;
+
+                        Row {
                             StatCard {
                                 value: "\{root.track-count}";
                                 caption: "Tracks";
                                 horizontal-stretch: 1;
                             }
+
                             StatCard {
                                 value: "\{root.album-count}";
                                 caption: "Albums";
                                 horizontal-stretch: 1;
                             }
+                        }
+
+                        Row {
                             StatCard {
                                 value: "\{root.artist-count}";
                                 caption: "Artists";
                                 horizontal-stretch: 1;
                             }
+
                             StatCard {
                                 value: root.library-duration;
                                 caption: "Total listening time";
                                 horizontal-stretch: 1;
                             }
                         }
-
-                        Text {
-                            text: "Recently added";
-                            color: Palette.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                        }
-
-                        if root.recent-tracks.length == 0 : EmptyState {
-                            message: "Your library is empty. Open \"Library folders\", paste a path and press Add folder — Sonora will index everything inside it.";
-                        }
-
-                        for item[index] in root.recent-tracks : TrackRowItem {
-                            track: item;
-                            position: index + 1;
-                            show-index: true;
-                            activated(id) => {
-                                root.track-activated(id);
-                            }
-                            play-next(id) => {
-                                root.play-next-requested(id);
-                            }
-                            enqueue(id) => {
-                                root.enqueue-requested(id);
-                            }
-                            favourite(id, starred) => {
-                                root.favourite-toggled(id, starred);
-                            }
-                            rate(id, rating) => {
-                                root.rating-changed(id, rating);
-                            }
-                            open-album(id) => { root.open-album(id); }
-                            open-artist(id, name) => { root.open-artist(id, name); }
-                            add-to-playlist(id, title) => {
-                                root.open-playlist-picker(id, title);
-                            }
-                        }
-
-                        if root.most-played-tracks.length > 0 : Text {
-                            text: "Most played";
-                            color: Palette.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                        }
-
-                        for item[index] in root.most-played-tracks : TrackRowItem {
-                            track: item;
-                            position: index + 1;
-                            show-index: true;
-                            activated(id) => {
-                                root.track-activated(id);
-                            }
-                            play-next(id) => {
-                                root.play-next-requested(id);
-                            }
-                            enqueue(id) => {
-                                root.enqueue-requested(id);
-                            }
-                            favourite(id, starred) => {
-                                root.favourite-toggled(id, starred);
-                            }
-                            rate(id, rating) => {
-                                root.rating-changed(id, rating);
-                            }
-                            open-album(id) => { root.open-album(id); }
-                            open-artist(id, name) => { root.open-artist(id, name); }
-                            add-to-playlist(id, title) => {
-                                root.open-playlist-picker(id, title);
-                            }
-                        }
-                    }
-                }
-
-                // ----------------------------------------------------- settings
-                if root.section == "settings" : ScrollView {
-                    VerticalLayout {
-                        padding: 24px;
-                        spacing: 14px;
-
-                        Text {
-                            text: "Playback format";
-                            color: Palette.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                        }
-                        Text {
-                            text: "Lossless prefers FLAC and WAV. Lossy never exceeds the ceiling below, and the ceiling is a maximum, never a target to re-encode up to.";
-                            color: Palette.muted;
-                            font-size: 12px;
-                            wrap: word-wrap;
-                        }
-                        HorizontalLayout {
-                            spacing: 10px;
-                            ActionButton {
-                                label: "Lossless";
-                                primary: root.settings-format-tier == "lossless";
-                                clicked => {
-                                    root.settings-format-tier = "lossless";
-                                }
-                            }
-                            ActionButton {
-                                label: "Lossy";
-                                primary: root.settings-format-tier == "lossy";
-                                clicked => {
-                                    root.settings-format-tier = "lossy";
-                                }
-                            }
-                        }
-                        if root.settings-format-tier == "lossy" : Text {
-                            text: root.settings-bitrate >= 1411 ? "Bitrate ceiling: unlimited" : "Bitrate ceiling: \{root.bitrate-shown} kbit/s";
-                            color: Palette.muted;
-                            font-size: 12px;
-                        }
-                        if root.settings-format-tier == "lossy" : HorizontalLayout {
-                            spacing: 8px;
-                            alignment: center;
-
-                            StepButton {
-                                label: "−";
-                                enabled: root.settings-bitrate > 32;
-                                clicked => {
-                                    root.settings-bitrate = max(32.0, root.settings-bitrate - 32);
-                                }
-                            }
-                            Slider {
-                                horizontal-stretch: 1;
-                                minimum: 32;
-                                maximum: 1411;
-                                value <=> root.settings-bitrate;
-                            }
-                            StepButton {
-                                label: "+";
-                                enabled: root.settings-bitrate < 1411;
-                                clicked => {
-                                    root.settings-bitrate = min(1411.0, root.settings-bitrate + 32);
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            height: 1px;
-                            background: Palette.stroke;
-                        }
-
-                        Text {
-                            text: "Track cache";
-                            color: Palette.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                        }
-                        Text {
-                            text: "Least recently played tracks are evicted first, and the playing track is never removed.";
-                            color: Palette.muted;
-                            font-size: 12px;
-                            wrap: word-wrap;
-                        }
-                        Text {
-                            text: "Budget: \{root.cache-shown} MiB";
-                            color: Palette.muted;
-                            font-size: 12px;
-                        }
-                        HorizontalLayout {
-                            spacing: 8px;
-                            alignment: center;
-
-                            StepButton {
-                                label: "−";
-                                enabled: root.settings-cache-mib > 64;
-                                clicked => {
-                                    root.settings-cache-mib = max(64.0, root.settings-cache-mib - 256);
-                                }
-                            }
-                            Slider {
-                                horizontal-stretch: 1;
-                                minimum: 64;
-                                maximum: 16384;
-                                value <=> root.settings-cache-mib;
-                            }
-                            StepButton {
-                                label: "+";
-                                enabled: root.settings-cache-mib < 16384;
-                                clicked => {
-                                    root.settings-cache-mib = min(16384.0, root.settings-cache-mib + 256);
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            height: 1px;
-                            background: Palette.stroke;
-                        }
-
-                        Text {
-                            text: "Download folder";
-                            color: Palette.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                        }
-                        Text {
-                            text: "Where downloaded tracks are written. Leave it on the default to keep them inside the library.";
-                            color: Palette.muted;
-                            font-size: 12px;
-                            wrap: word-wrap;
-                        }
-                        HorizontalLayout {
-                            spacing: 8px;
-
-                            Text {
-                                text: root.settings-download-folder == "" ? "Default (inside the library)" : root.settings-download-folder;
-                                color: Palette.muted;
-                                font-size: 12px;
-                                horizontal-stretch: 1;
-                                overflow: elide;
-                                vertical-alignment: center;
-                            }
-                            ActionButton {
-                                label: "Browse…";
-                                primary: false;
-                                clicked => {
-                                    root.pick-settings-folder("download");
-                                }
-                            }
-                            ActionButton {
-                                label: "Default";
-                                primary: false;
-                                clicked => {
-                                    root.clear-settings-folder("download");
-                                }
-                            }
-                        }
-
-                        Text {
-                            text: "Cache folder";
-                            color: Palette.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                        }
-                        Text {
-                            text: "Where cached tracks live. Leave it on the default to use the app data directory.";
-                            color: Palette.muted;
-                            font-size: 12px;
-                            wrap: word-wrap;
-                        }
-                        HorizontalLayout {
-                            spacing: 8px;
-
-                            Text {
-                                text: root.settings-cache-folder == "" ? "Default (app data)" : root.settings-cache-folder;
-                                color: Palette.muted;
-                                font-size: 12px;
-                                horizontal-stretch: 1;
-                                overflow: elide;
-                                vertical-alignment: center;
-                            }
-                            ActionButton {
-                                label: "Browse…";
-                                primary: false;
-                                clicked => {
-                                    root.pick-settings-folder("cache");
-                                }
-                            }
-                            ActionButton {
-                                label: "Default";
-                                primary: false;
-                                clicked => {
-                                    root.clear-settings-folder("cache");
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            height: 1px;
-                            background: Palette.stroke;
-                        }
-
-                        Text {
-                            text: "Artwork";
-                            color: Palette.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                        }
-                        HorizontalLayout {
-                            spacing: 10px;
-                            ActionButton {
-                                label: "JPEG";
-                                primary: root.settings-artwork-format == "jpg";
-                                clicked => {
-                                    root.settings-artwork-format = "jpg";
-                                }
-                            }
-                            ActionButton {
-                                label: "PNG";
-                                primary: root.settings-artwork-format == "png";
-                                clicked => {
-                                    root.settings-artwork-format = "png";
-                                }
-                            }
-                        }
-                        Text {
-                            text: "JPEG quality: \{root.settings-artwork-quality}";
-                            color: Palette.muted;
-                            font-size: 12px;
-                        }
-                        Slider {
-                            minimum: 1;
-                            maximum: 100;
-                            value: root.settings-artwork-quality;
-                            changed(value) => {
-                                root.settings-artwork-quality = round(value);
-                            }
-                        }
-
-                        Rectangle {
-                            height: 1px;
-                            background: Palette.stroke;
-                        }
-
-                        Text {
-                            text: "Library layout";
-                            color: Palette.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                        }
-                        LineEdit {
-                            text: root.settings-folder-template;
-                            edited(text) => {
-                                root.settings-folder-template = text;
-                            }
-                        }
-                        Text {
-                            text: "Placeholders: album_artist, album, artist, title, track_no:02, disc_no, year.";
-                            color: Palette.muted;
-                            font-size: 11px;
-                            wrap: word-wrap;
-                        }
-
-                        Rectangle {
-                            height: 1px;
-                            background: Palette.stroke;
-                        }
-
-                        Text {
-                            text: "Last.fm";
-                            color: Palette.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                        }
-                        Text {
-                            text: "Optional. Last.fm data needs a free API key; every keyless provider keeps working without one.";
-                            color: Palette.muted;
-                            font-size: 12px;
-                            wrap: word-wrap;
-                        }
-                        LineEdit {
-                            text: root.settings-lastfm-key;
-                            placeholder-text: "API key";
-                            edited(text) => {
-                                root.settings-lastfm-key = text;
-                            }
-                        }
-
-                        Rectangle {
-                            height: 1px;
-                            background: Palette.stroke;
-                        }
-
-                        Text {
-                            text: "Device sync";
-                            color: Palette.text;
-                            font-size: 16px;
-                            font-weight: 600;
-                        }
-                        Text {
-                            text: "Opt in to syncing with a device when it is plugged in. Off by default; Android never syncs to an external device.";
-                            color: Palette.muted;
-                            font-size: 12px;
-                            wrap: word-wrap;
-                        }
-                        HorizontalLayout {
-                            spacing: 10px;
-                            ActionButton {
-                                label: "Enabled";
-                                primary: root.settings-device-sync;
-                                clicked => {
-                                    root.settings-device-sync = true;
-                                }
-                            }
-                            ActionButton {
-                                label: "Disabled";
-                                primary: !root.settings-device-sync;
-                                clicked => {
-                                    root.settings-device-sync = false;
-                                }
-                            }
-                        }
-
-                        Text {
-                            text: "Playback device";
-                            color: Palette.text;
-                            font-size: 14px;
-                            font-weight: 700;
-                        }
-                        Text {
-                            text: root.settings-device == "" ? "System default" : root.settings-device;
-                            color: Palette.muted;
-                            font-size: 12px;
-                            wrap: word-wrap;
-                        }
-                        HorizontalLayout {
-                            spacing: 10px;
-                            ActionButton {
-                                label: "Change";
-                                clicked => {
-                                    root.pick-playback-device();
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            spacing: 14px;
-                            ActionButton {
-                                label: "Save settings";
-                                clicked => {
-                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key, root.settings-download-folder, root.settings-cache-folder, root.settings-device-sync, root.settings-device);
-                                }
-                            }
-                            ActionButton {
-                                label: "Run onboarding again";
-                                primary: false;
-                                clicked => {
-                                    root.run-onboarding();
-                                }
-                            }
-                            Text {
-                                text: root.status;
-                                color: Palette.muted;
-                                font-size: 12px;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
-                }
-
-                // ------------------------------------------------------- playback device picker
-                if root.device-picker-open : Rectangle {
-                    width: parent.width;
-                    height: parent.height;
-                    background: Palette.sidebar;
-
-                    Rectangle {
-                        width: 340px;
-                        height: 340px;
-                        background: Palette.panel;
-                        border-radius: 10px;
-                        x: (parent.width - self.width) / 2;
-                        y: (parent.height - self.height) / 2;
-
-                        VerticalLayout {
-                            padding: 14px;
-                            spacing: 12px;
-
-                            Text {
-                                text: "Playback device";
-                                color: Palette.text;
-                                font-size: 14px;
-                                font-weight: 700;
-                            }
-
-                            ScrollView {
-                                height: 220px;
-
-                                VerticalLayout {
-                                    spacing: 4px;
-
-                                    for device[index] in root.devices : Rectangle {
-                                        height: 40px;
-                                        horizontal-stretch: 1;
-                                        background: root.device-picker-selected == index ? Palette.accent-soft : transparent;
-                                        border-radius: 6px;
-
-                                        Text {
-                                            text: device;
-                                            color: root.device-picker-selected == index ? Palette.accent : Palette.text;
-                                            font-size: 13px;
-                                            horizontal-alignment: center;
-                                            vertical-alignment: center;
-                                        }
-
-                                        touch := TouchArea {
-                                            clicked => {
-                                                root.device-picker-selected = index;
-                                                root.device-picker-select(device);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            HorizontalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 0px;
-
-                                Rectangle {
-                                    horizontal-stretch: 1;
-                                }
-
-                                ActionButton {
-                                    label: "Cancel";
-                                    clicked => {
-                                        root.device-picker-open = false;
-                                        root.device-picker-cancel();
-                                    }
-                                }
-
-                                Rectangle {
-                                    horizontal-stretch: 1;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ------------------------------------------------------- tracks
-                if root.section == "tracks" : TrackList {
-                    rows: root.all-tracks;
-                    empty-message: root.search-text == "" ? "No tracks indexed yet." : "No tracks match your search.";
-                    activated(id) => {
-                        root.track-activated(id);
-                    }
-                    play-next(id) => {
-                        root.play-next-requested(id);
-                    }
-                    enqueue(id) => {
-                        root.enqueue-requested(id);
-                    }
-                    favourite(id, starred) => {
-                        root.favourite-toggled(id, starred);
-                    }
-                    rate(id, rating) => {
-                        root.rating-changed(id, rating);
-                    }
-                    open-album(id) => { root.open-album(id); }
-                    open-artist(id, name) => { root.open-artist(id, name); }
-                    add-to-playlist(id, title) => {
-                        root.open-playlist-picker(id, title);
-                    }
-                }
-
-                // ------------------------------------------------------ history
-                if root.section == "history" : TrackList {
-                    rows: root.history-tracks;
-                    empty-message: "Nothing played yet. Start a track and it will show up here.";
-                    activated(id) => {
-                        root.track-activated(id);
-                    }
-                    play-next(id) => {
-                        root.play-next-requested(id);
-                    }
-                    enqueue(id) => {
-                        root.enqueue-requested(id);
-                    }
-                    favourite(id, starred) => {
-                        root.favourite-toggled(id, starred);
-                    }
-                    rate(id, rating) => {
-                        root.rating-changed(id, rating);
-                    }
-                    open-album(id) => { root.open-album(id); }
-                    open-artist(id, name) => { root.open-artist(id, name); }
-                    add-to-playlist(id, title) => {
-                        root.open-playlist-picker(id, title);
-                    }
-                }
-
-                // --------------------------------------------------- favourites
-                if root.section == "favourites" : TrackList {
-                    rows: root.favourite-tracks;
-                    empty-message: "No favourites yet. Press the heart beside a track to keep it here.";
-                    activated(id) => {
-                        root.track-activated(id);
-                    }
-                    play-next(id) => {
-                        root.play-next-requested(id);
-                    }
-                    enqueue(id) => {
-                        root.enqueue-requested(id);
-                    }
-                    favourite(id, starred) => {
-                        root.favourite-toggled(id, starred);
-                    }
-                    rate(id, rating) => {
-                        root.rating-changed(id, rating);
-                    }
-                    open-album(id) => { root.open-album(id); }
-                    open-artist(id, name) => { root.open-artist(id, name); }
-                    add-to-playlist(id, title) => {
-                        root.open-playlist-picker(id, title);
-                    }
-                }
-
-                // ---------------------------------------------------- playlists
-                if root.section == "playlists" : ScrollView {
-                    VerticalLayout {
-                        padding: 24px;
-                        spacing: 14px;
-
-                        HorizontalLayout {
-                            spacing: 10px;
-
-                            LineEdit {
-                                text: root.playlist-name-input;
-                                placeholder-text: "New playlist name";
-                                edited(text) => {
-                                    root.playlist-name-input = text;
-                                }
-                                horizontal-stretch: 1;
-                            }
-
-                            ActionButton {
-                                label: "Create";
-                                clicked => {
-                                    root.playlist-create(root.playlist-name-input);
-                                }
-                            }
-                        }
-
-                        Text {
-                            text: "Open a playlist to play it, rename it, or take tracks out. The + on any row adds that track to a playlist.";
-                            color: Palette.muted;
-                            font-size: 12px;
-                            wrap: word-wrap;
-                        }
-
-                        RuleEditor {
-                            heading: "New smart playlist";
-                            note: "A smart playlist fills itself from these rules every time it is opened, so rating, favouriting or adding a track can change it without editing the playlist. Up to 200 tracks.";
-                            name: root.smart-name-input;
-                            filter-text: root.smart-filter-input;
-                            favourites: root.smart-favourites;
-                            min-rating: root.smart-min-rating;
-                            year-from: root.smart-year-input;
-                            name-edited(text) => {
-                                root.smart-name-input = text;
-                            }
-                            filter-edited(text) => {
-                                root.smart-filter-input = text;
-                            }
-                            favourites-toggled(on) => {
-                                root.smart-favourites = on;
-                            }
-                            rating-changed(stars) => {
-                                root.smart-min-rating = stars;
-                            }
-                            year-edited(text) => {
-                                root.smart-year-input = text;
-                            }
-                            submitted() => {
-                                root.playlist-smart-create(root.smart-name-input, root.smart-filter-input, root.smart-favourites, root.smart-min-rating, root.smart-year-input);
-                            }
-                        }
-
-                        if root.playlists.length == 0 : EmptyState {
-                            message: "No playlists yet. Name one above and press Create.";
-                        }
-
-                        for item in root.playlists : PlaylistCard {
-                            playlist: item;
-                            opened(id) => {
-                                root.playlist-open(id);
-                            }
-                        }
-                    }
-                }
-
-                // --------------------------------------------- playlist detail
-                if root.section == "playlist" : VerticalLayout {
-                    vertical-stretch: 1;
-
-                    VerticalLayout {
-                        padding: 24px;
-                        spacing: 8px;
-
-                        HorizontalLayout {
-                            spacing: 12px;
-
-                            VerticalLayout {
-                                spacing: 4px;
-
-                                Text {
-                                    text: root.playlist-title;
-                                    color: Palette.text;
-                                    font-size: 18px;
-                                    font-weight: 600;
-                                    overflow: elide;
-                                }
-
-                                Text {
-                                    text: root.playlist-meta;
-                                    color: Palette.muted;
-                                    font-size: 12px;
-                                }
-                            }
-
-                            Rectangle {
-                                horizontal-stretch: 1;
-                            }
-
-                            ActionButton {
-                                label: "Back";
-                                clicked => {
-                                    root.section-changed("playlists");
-                                }
-                            }
-
-                            ActionButton {
-                                label: "Play playlist";
-                                primary: true;
-                                clicked => {
-                                    root.playlist-play();
-                                }
-                            }
-
-                            ActionButton {
-                                label: root.playlist-delete-armed ? "Delete for good" : "Delete";
-                                primary: root.playlist-delete-armed;
-                                clicked => {
-                                    if root.playlist-delete-armed {
-                                        root.playlist-delete-armed = false;
-                                        root.playlist-delete();
-                                    } else {
-                                        root.playlist-delete-armed = true;
-                                    }
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            spacing: 10px;
-
-                            LineEdit {
-                                text: root.playlist-name-input;
-                                placeholder-text: "Playlist name";
-                                edited(text) => {
-                                    root.playlist-name-input = text;
-                                }
-                                horizontal-stretch: 1;
-                            }
-
-                            ActionButton {
-                                label: "Rename";
-                                primary: false;
-                                clicked => {
-                                    root.playlist-rename(root.playlist-name-input);
-                                }
-                            }
-                        }
-
-                        if root.playlist-smart : RuleEditor {
-                            heading: "Rules";
-                            note: root.playlist-rules-summary;
-                            show-name: false;
-                            submit-label: "Save rules";
-                            filter-text: root.smart-filter-input;
-                            favourites: root.smart-favourites;
-                            min-rating: root.smart-min-rating;
-                            year-from: root.smart-year-input;
-                            filter-edited(text) => {
-                                root.smart-filter-input = text;
-                            }
-                            favourites-toggled(on) => {
-                                root.smart-favourites = on;
-                            }
-                            rating-changed(stars) => {
-                                root.smart-min-rating = stars;
-                            }
-                            year-edited(text) => {
-                                root.smart-year-input = text;
-                            }
-                            submitted() => {
-                                root.playlist-smart-save(root.smart-filter-input, root.smart-favourites, root.smart-min-rating, root.smart-year-input);
-                            }
-                        }
                     }
 
-                    TrackList {
-                        vertical-stretch: 1;
-                        rows: root.playlist-tracks;
-                        show-remove: !root.playlist-smart;
-                        show-add: !root.playlist-smart;
-                        empty-message: root.playlist-smart ? "Nothing in the library matches these rules yet." : "This playlist is empty. The + on any row adds that track here.";
+                    Text {
+                        text: "Recently added";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    if root.recent-tracks.length == 0: EmptyState {
+                        message: "Your library is empty. Open Settings, add a music folder — Sonora will index everything inside it.";
+                    }
+
+                    for item[index] in root.recent-tracks: TrackRowItem {
+                        track: item;
+                        position: index + 1;
+                        show-index: true;
                         activated(id) => {
-                            root.playlist-track-activated(id);
+                            root.track-activated(id);
                         }
                         play-next(id) => {
                             root.play-next-requested(id);
@@ -2705,117 +2644,1176 @@ export component AppWindow inherits Window {
                         }
                         open-album(id) => { root.open-album(id); }
                         open-artist(id, name) => { root.open-artist(id, name); }
-                        remove(id) => {
-                            root.playlist-track-remove(id);
+                        add-to-playlist(id, title) => {
+                            root.open-playlist-picker(id, title);
                         }
+                    }
+
+                    if root.most-played-tracks.length > 0: Text {
+                        text: "Most played";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    for item[index] in root.most-played-tracks: TrackRowItem {
+                        track: item;
+                        position: index + 1;
+                        show-index: true;
+                        activated(id) => {
+                            root.track-activated(id);
+                        }
+                        play-next(id) => {
+                            root.play-next-requested(id);
+                        }
+                        enqueue(id) => {
+                            root.enqueue-requested(id);
+                        }
+                        favourite(id, starred) => {
+                            root.favourite-toggled(id, starred);
+                        }
+                        rate(id, rating) => {
+                            root.rating-changed(id, rating);
+                        }
+                        open-album(id) => { root.open-album(id); }
+                        open-artist(id, name) => { root.open-artist(id, name); }
                         add-to-playlist(id, title) => {
                             root.open-playlist-picker(id, title);
                         }
                     }
                 }
+            }
 
-                // ------------------------------------------------------- albums
-                if root.section == "albums" : ScrollView {
-                    VerticalLayout {
-                        padding: 24px;
-                        spacing: 14px;
+            // ----------------------------------------------------- settings
+                if root.section == "settings": ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    alignment: start;
+                    padding: 24px;
+                    spacing: 14px;
 
-                        if root.albums.length == 0 : EmptyState {
-                            message: "Albums appear here once tracks with album tags are indexed.";
+                    Text {
+                        text: "Appearance";
+                        color: Palette.text;
+                        font-size: 18px;
+                        font-weight: 600;
+                    }
+
+                    SettingSwitch {
+                        label: "Blur panels";
+                        checked <=> root.settings-blur-panels;
+                        toggled(value) => { root.appearance-changed(value, root.settings-cover-background); }
+                    }
+
+                    SettingSwitch {
+                        label: "Use blurred cover art as the player background";
+                        checked <=> root.settings-cover-background;
+                        toggled(value) => { root.appearance-changed(root.settings-blur-panels, value); }
+                    }
+
+                    Text {
+                        text: "Uses the playing track's cover. Missing artwork uses the plain background.";
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: Palette.stroke;
+                    }
+
+                    HorizontalLayout {
+                        Text {
+                            text: "Library folders";
+                            color: Palette.text;
+                            font-size: 18px;
+                            font-weight: 600;
+                            horizontal-stretch: 1;
                         }
 
-                        for item in root.albums : AlbumCard {
-                            album: item;
-                            opened(id) => { root.open-album(id); }
-                            open-artist(id, name) => { root.open-artist(id, name); }
+                        ActionButton {
+                            label: root.busy ? "Scanning…" : "Rescan library";
+                            primary: false;
+                            clicked => { root.rescan-requested(); }
+                        }
+                    }
+
+                    Text {
+                        text: "Sonora indexes every supported audio file inside these folders, including subfolders. Re-scanning only touches files that changed.";
+                        color: Palette.muted;
+                        font-size: 13px;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+
+                        LineEdit {
+                            text: root.folder-path;
+                            placeholder-text: root.folder-hint;
+                            edited(text) => {
+                                root.folder-path = text;
+                            }
+                            horizontal-stretch: 1;
+                        }
+
+                        ActionButton {
+                            label: "Browse…";
+                            primary: false;
+                            clicked => {
+                                root.browse-folder();
+                            }
+                        }
+
+                        ActionButton {
+                            label: "Add folder";
+                            clicked => {
+                                root.add-folder(root.folder-path);
+                            }
+                        }
+                    }
+
+                    if root.folders.length == 0: EmptyState {
+                        message: "No library folders yet.";
+                    }
+
+                    for folder in root.folders: Rectangle {
+                        height: 46px;
+                        border-radius: 8px;
+                        background: Palette.panel;
+
+                        HorizontalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 10px;
+
+                            Text {
+                                text: folder.path;
+                                color: Palette.text;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                            }
+
+                            ActionButton {
+                                label: root.folder-remove-armed == folder.id ? "Confirm removal" : "Remove";
+                                primary: false;
+                                clicked => {
+                                    if (root.folder-remove-armed == folder.id) { root.remove-folder(folder.id); root.folder-remove-armed = 0; }
+                                    else { root.folder-remove-armed = folder.id; }
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        text: "Listening history";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    ComboBox {
+                        model: [
+                            "1 hour",
+                            "1 day",
+                            "2 days",
+                            "3 days",
+                            "4 days",
+                            "5 days",
+                            "6 days",
+                            "7 days",
+                            "2 weeks",
+                            "1 month",
+                            "6 months",
+                            "1 year",
+                            "All time"
+                        ];
+                        current-index <=> root.settings-history-retention;
+                    }
+
+                    Text {
+                        text: "Rolling UTC durations: month = 30 days, six months = 180 days, year = 365 days. Saving removes expired events; lifetime counts and favourites are kept.";
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    Text {
+                        text: "Playback format";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Lossless prefers FLAC and WAV. Lossy never exceeds the ceiling below, and the ceiling is a maximum, never a target to re-encode up to.";
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        ActionButton {
+                            label: "Lossless";
+                            primary: root.settings-format-tier == "lossless";
+                            clicked => {
+                                root.settings-format-tier = "lossless";
+                            }
+                        }
+
+                        ActionButton {
+                            label: "Lossy";
+                            primary: root.settings-format-tier == "lossy";
+                            clicked => {
+                                root.settings-format-tier = "lossy";
+                            }
+                        }
+                    }
+
+                    if root.settings-format-tier == "lossy": Text {
+                        text: root.settings-bitrate >= 1411 ? "Bitrate ceiling: unlimited" : "Bitrate ceiling: \{root.bitrate-shown} kbit/s";
+                        color: Palette.muted;
+                        font-size: 12px;
+                    }
+                    if root.settings-format-tier == "lossy": HorizontalLayout {
+                        spacing: 8px;
+                        alignment: stretch;
+
+                        StepButton {
+                            label: "−";
+                            enabled: root.settings-bitrate > 32;
+                            clicked => {
+                                root.settings-bitrate = max(32.0, root.settings-bitrate - 32);
+                            }
+                        }
+
+                        Slider {
+                            horizontal-stretch: 1;
+                            minimum: 32;
+                            maximum: 1411;
+                            value <=> root.settings-bitrate;
+                        }
+
+                        StepButton {
+                            label: "+";
+                            enabled: root.settings-bitrate < 1411;
+                            clicked => {
+                                root.settings-bitrate = min(1411.0, root.settings-bitrate + 32);
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: Palette.stroke;
+                    }
+
+                    Text {
+                        text: "Track cache";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Least recently played tracks are evicted first, and the playing track is never removed.";
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Text {
+                            text: root.cache-size;
+                            color: Palette.muted;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+
+                        ActionButton {
+                            label: "Refresh size";
+                            primary: false;
+                            clicked => { root.cache-action(false); }
+                        }
+
+                        ActionButton {
+                            label: "Clear Cache";
+                            primary: false;
+                            clicked => { root.cache-confirm = true; root.cache-action(false); }
+                        }
+                    }
+
+                    Text {
+                        text: "Budget: \{root.cache-shown} MiB";
+                        color: Palette.muted;
+                        font-size: 12px;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: stretch;
+
+                        StepButton {
+                            label: "−";
+                            enabled: root.settings-cache-mib > 64;
+                            clicked => {
+                                root.settings-cache-mib = max(64.0, root.settings-cache-mib - 256);
+                            }
+                        }
+
+                        Slider {
+                            horizontal-stretch: 1;
+                            minimum: 64;
+                            maximum: 16384;
+                            value <=> root.settings-cache-mib;
+                        }
+
+                        StepButton {
+                            label: "+";
+                            enabled: root.settings-cache-mib < 16384;
+                            clicked => {
+                                root.settings-cache-mib = min(16384.0, root.settings-cache-mib + 256);
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: Palette.stroke;
+                    }
+
+                    Text {
+                        text: "Download folder";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Where downloaded tracks are written. Leave it on the default to keep them inside the library.";
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Text {
+                            text: root.settings-download-folder == "" ? "Default (inside the library)" : root.settings-download-folder;
+                            color: Palette.muted;
+                            font-size: 12px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+
+                        ActionButton {
+                            label: "Browse…";
+                            primary: false;
+                            clicked => {
+                                root.pick-settings-folder("download");
+                            }
+                        }
+
+                        ActionButton {
+                            label: "Default";
+                            primary: false;
+                            clicked => {
+                                root.clear-settings-folder("download");
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "Cache folder";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Where cached tracks live. Leave it on the default to use the app data directory.";
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Text {
+                            text: root.settings-cache-folder == "" ? "Default (app data)" : root.settings-cache-folder;
+                            color: Palette.muted;
+                            font-size: 12px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+
+                        ActionButton {
+                            label: "Browse…";
+                            primary: false;
+                            clicked => {
+                                root.pick-settings-folder("cache");
+                            }
+                        }
+
+                        ActionButton {
+                            label: "Default";
+                            primary: false;
+                            clicked => {
+                                root.clear-settings-folder("cache");
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: Palette.stroke;
+                    }
+
+                    Text {
+                        text: "Artwork";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        ActionButton {
+                            label: "JPEG";
+                            primary: root.settings-artwork-format == "jpg";
+                            clicked => {
+                                root.settings-artwork-format = "jpg";
+                            }
+                        }
+
+                        ActionButton {
+                            label: "PNG";
+                            primary: root.settings-artwork-format == "png";
+                            clicked => {
+                                root.settings-artwork-format = "png";
+                            }
+                        }
+                    }
+
+                    if root.settings-artwork-format == "jpg": Text {
+                        text: "JPEG quality: \{root.settings-artwork-quality}";
+                        color: Palette.muted;
+                        font-size: 12px;
+                    }
+                    if root.settings-artwork-format == "jpg": Slider {
+                        minimum: 1;
+                        maximum: 100;
+                        value: root.settings-artwork-quality;
+                        changed(value) => {
+                            root.settings-artwork-quality = round(value);
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: Palette.stroke;
+                    }
+
+                    Text {
+                        text: "Library layout";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    LineEdit {
+                        text: root.settings-folder-template;
+                        edited(text) => {
+                            root.settings-folder-template = text;
+                        }
+                    }
+
+                    Text {
+                        text: "Placeholders: album_artist, album, artist, title, track_no:02, disc_no, year.";
+                        color: Palette.muted;
+                        font-size: 11px;
+                        wrap: word-wrap;
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: Palette.stroke;
+                    }
+
+                    Text {
+                        text: "Last.fm";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Optional. Last.fm data needs a free API key; every keyless provider keeps working without one.";
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    LineEdit {
+                        text: root.settings-lastfm-key;
+                        placeholder-text: "API key";
+                        edited(text) => {
+                            root.settings-lastfm-key = text;
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: Palette.stroke;
+                    }
+
+                    Text {
+                        text: "Device sync";
+                        color: Palette.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Opt in to syncing with a device when it is plugged in. Off by default; Android never syncs to an external device.";
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        ActionButton {
+                            label: "Enabled";
+                            primary: root.settings-device-sync;
+                            clicked => {
+                                root.settings-device-sync = true;
+                            }
+                        }
+
+                        ActionButton {
+                            label: "Disabled";
+                            primary: !root.settings-device-sync;
+                            clicked => {
+                                root.settings-device-sync = false;
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "Playback device";
+                        color: Palette.text;
+                        font-size: 14px;
+                        font-weight: 700;
+                    }
+
+                    Text {
+                        text: root.settings-device == "" ? "System default" : root.settings-device;
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    Text {
+                        text: "Audio output changes take effect after restarting Sonora.";
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        ActionButton {
+                            label: "Change";
+                            clicked => {
+                                root.pick-playback-device();
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 14px;
+                        ActionButton {
+                            label: "Save settings";
+                            clicked => {
+                                root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key, root.settings-download-folder, root.settings-cache-folder, root.settings-device-sync, root.settings-device, root.settings-history-retention);
+                            }
+                        }
+
+                        ActionButton {
+                            label: "Run onboarding again";
+                            primary: false;
+                            clicked => {
+                                root.run-onboarding();
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.section == "artists": ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    alignment: start;
+                    padding: 24px;
+                    spacing: 10px;
+                    if root.artists.length == 0: EmptyState {
+                        message: "No artists indexed yet.";
+                    }
+                    for artist in root.artists: Rectangle {
+                        height: 64px;
+                        border-radius: Palette.radius;
+                        background: artist-list-touch.has-hover ? Palette.panel-hover : Palette.panel;
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 4px;
+                            Text {
+                                text: artist.name;
+                                color: Palette.text;
+                                font-size: 16px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                text: artist.meta;
+                                color: Palette.muted;
+                                font-size: 12px;
+                            }
+                        }
+
+                        artist-list-touch := TouchArea {
+                            clicked => { root.open-artist(artist.id, artist.name); }
+                        }
+                    }
+                }
+            }
+                // ------------------------------------------------------- tracks
+                if root.section == "tracks": TrackList {
+                rows: root.all-tracks;
+                has-more: root.all-tracks.length >= root.tracks-limit;
+                load-more => { root.load-more-tracks(); }
+                empty-message: root.search-text == "" ? "No tracks indexed yet." : "No tracks match your search.";
+                activated(id) => {
+                    root.track-activated(id);
+                }
+                play-next(id) => {
+                    root.play-next-requested(id);
+                }
+                enqueue(id) => {
+                    root.enqueue-requested(id);
+                }
+                favourite(id, starred) => {
+                    root.favourite-toggled(id, starred);
+                }
+                rate(id, rating) => {
+                    root.rating-changed(id, rating);
+                }
+                open-album(id) => { root.open-album(id); }
+                open-artist(id, name) => { root.open-artist(id, name); }
+                add-to-playlist(id, title) => {
+                    root.open-playlist-picker(id, title);
+                }
+            }
+
+            // ------------------------------------------------------ history
+                if root.section == "history": TrackList {
+                rows: root.history-tracks;
+                empty-message: "Nothing played yet. Start a track and it will show up here.";
+                activated(id) => {
+                    root.track-activated(id);
+                }
+                play-next(id) => {
+                    root.play-next-requested(id);
+                }
+                enqueue(id) => {
+                    root.enqueue-requested(id);
+                }
+                favourite(id, starred) => {
+                    root.favourite-toggled(id, starred);
+                }
+                rate(id, rating) => {
+                    root.rating-changed(id, rating);
+                }
+                open-album(id) => { root.open-album(id); }
+                open-artist(id, name) => { root.open-artist(id, name); }
+                add-to-playlist(id, title) => {
+                    root.open-playlist-picker(id, title);
+                }
+            }
+
+            // --------------------------------------------------- favourites
+                if root.section == "favourites": TrackList {
+                rows: root.favourite-tracks;
+                empty-message: "No favourites yet. Press the heart beside a track to keep it here.";
+                activated(id) => {
+                    root.track-activated(id);
+                }
+                play-next(id) => {
+                    root.play-next-requested(id);
+                }
+                enqueue(id) => {
+                    root.enqueue-requested(id);
+                }
+                favourite(id, starred) => {
+                    root.favourite-toggled(id, starred);
+                }
+                rate(id, rating) => {
+                    root.rating-changed(id, rating);
+                }
+                open-album(id) => { root.open-album(id); }
+                open-artist(id, name) => { root.open-artist(id, name); }
+                add-to-playlist(id, title) => {
+                    root.open-playlist-picker(id, title);
+                }
+            }
+
+            // ---------------------------------------------------- playlists
+                if root.section == "playlists": ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    alignment: start;
+                    padding: 24px;
+                    spacing: 14px;
+
+                    ActionButton {
+                        label: "♡ Favourites";
+                        primary: false;
+                        clicked => { root.section-changed("favourites"); }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+
+                        LineEdit {
+                            text: root.playlist-name-input;
+                            placeholder-text: "New playlist name";
+                            edited(text) => {
+                                root.playlist-name-input = text;
+                            }
+                            horizontal-stretch: 1;
+                        }
+
+                        ActionButton {
+                            label: "Create";
+                            clicked => {
+                                root.playlist-create(root.playlist-name-input);
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "Open a playlist to play it, rename it, or take tracks out. The + on any row adds that track to a playlist.";
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    RuleEditor {
+                        heading: "New smart playlist";
+                        note: "A smart playlist fills itself from these rules every time it is opened, so rating, favouriting or adding a track can change it without editing the playlist. Up to 200 tracks.";
+                        name: root.smart-name-input;
+                        filter-text: root.smart-filter-input;
+                        favourites: root.smart-favourites;
+                        min-rating: root.smart-min-rating;
+                        year-from: root.smart-year-input;
+                        name-edited(text) => {
+                            root.smart-name-input = text;
+                        }
+                        filter-edited(text) => {
+                            root.smart-filter-input = text;
+                        }
+                        favourites-toggled(on) => {
+                            root.smart-favourites = on;
+                        }
+                        rating-changed(stars) => {
+                            root.smart-min-rating = stars;
+                        }
+                        year-edited(text) => {
+                            root.smart-year-input = text;
+                        }
+                        submitted() => {
+                            root.playlist-smart-create(root.smart-name-input, root.smart-filter-input, root.smart-favourites, root.smart-min-rating, root.smart-year-input);
+                        }
+                    }
+
+                    if root.playlists.length == 0: EmptyState {
+                        message: "No playlists yet. Name one above and press Create.";
+                    }
+
+                    for item in root.playlists: PlaylistCard {
+                        playlist: item;
+                        opened(id) => {
+                            root.playlist-open(id);
+                        }
+                    }
+                }
+            }
+
+            // --------------------------------------------- playlist detail
+                if root.section == "playlist": VerticalLayout {
+                alignment: start;
+                vertical-stretch: 1;
+
+                VerticalLayout {
+                    alignment: start;
+                    padding: 24px;
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        VerticalLayout {
+                            alignment: start;
+                            spacing: 4px;
+
+                            Text {
+                                text: root.playlist-title;
+                                color: Palette.text;
+                                font-size: 18px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                text: root.playlist-meta;
+                                color: Palette.muted;
+                                font-size: 12px;
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+
+                        ActionButton {
+                            label: "Back";
+                            clicked => {
+                                root.section-changed("playlists");
+                            }
+                        }
+
+                        ActionButton {
+                            label: "Play playlist";
+                            primary: true;
+                            clicked => {
+                                root.playlist-play();
+                            }
+                        }
+
+                        ActionButton {
+                            label: root.playlist-delete-armed ? "Delete for good" : "Delete";
+                            primary: root.playlist-delete-armed;
+                            clicked => {
+                                if root.playlist-delete-armed {
+                                    root.playlist-delete-armed = false;
+                                    root.playlist-delete();
+                                } else {
+                                    root.playlist-delete-armed = true;
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+
+                        LineEdit {
+                            text: root.playlist-name-input;
+                            placeholder-text: "Playlist name";
+                            edited(text) => {
+                                root.playlist-name-input = text;
+                            }
+                            horizontal-stretch: 1;
+                        }
+
+                        ActionButton {
+                            label: "Rename";
+                            primary: false;
+                            clicked => {
+                                root.playlist-rename(root.playlist-name-input);
+                            }
+                        }
+                    }
+
+                    if root.playlist-smart: RuleEditor {
+                        heading: "Rules";
+                        note: root.playlist-rules-summary;
+                        show-name: false;
+                        submit-label: "Save rules";
+                        filter-text: root.smart-filter-input;
+                        favourites: root.smart-favourites;
+                        min-rating: root.smart-min-rating;
+                        year-from: root.smart-year-input;
+                        filter-edited(text) => {
+                            root.smart-filter-input = text;
+                        }
+                        favourites-toggled(on) => {
+                            root.smart-favourites = on;
+                        }
+                        rating-changed(stars) => {
+                            root.smart-min-rating = stars;
+                        }
+                        year-edited(text) => {
+                            root.smart-year-input = text;
+                        }
+                        submitted() => {
+                            root.playlist-smart-save(root.smart-filter-input, root.smart-favourites, root.smart-min-rating, root.smart-year-input);
                         }
                     }
                 }
 
-                // --------------------------------------------------- album detail
-                if root.section == "album" : VerticalLayout {
+                TrackList {
                     vertical-stretch: 1;
+                    rows: root.playlist-tracks;
+                    show-remove: !root.playlist-smart;
+                    show-add: !root.playlist-smart;
+                    empty-message: root.playlist-smart ? "Nothing in the library matches these rules yet." : "This playlist is empty. The + on any row adds that track here.";
+                    activated(id) => {
+                        root.playlist-track-activated(id);
+                    }
+                    play-next(id) => {
+                        root.play-next-requested(id);
+                    }
+                    enqueue(id) => {
+                        root.enqueue-requested(id);
+                    }
+                    favourite(id, starred) => {
+                        root.favourite-toggled(id, starred);
+                    }
+                    rate(id, rating) => {
+                        root.rating-changed(id, rating);
+                    }
+                    open-album(id) => { root.open-album(id); }
+                    open-artist(id, name) => { root.open-artist(id, name); }
+                    remove(id) => {
+                        root.playlist-track-remove(id);
+                    }
+                    add-to-playlist(id, title) => {
+                        root.open-playlist-picker(id, title);
+                    }
+                }
+            }
 
-                    VerticalLayout {
-                        padding: 24px;
-                        spacing: 6px;
+            // ------------------------------------------------------- albums
+                if root.section == "albums": ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    alignment: start;
+                    padding: 24px;
+                    spacing: 14px;
 
-                        HorizontalLayout {
-                            spacing: 12px;
+                    if root.albums.length == 0: EmptyState {
+                        message: "Albums appear here once tracks with album tags are indexed.";
+                    }
 
-                            VerticalLayout {
-                                spacing: 4px;
+                    for item in root.albums: AlbumCard {
+                        album: item;
+                        opened(id) => { root.open-album(id); }
+                        open-artist(id, name) => { root.open-artist(id, name); }
+                    }
+                }
+            }
 
-                                Text {
-                                    text: root.album-title;
-                                    color: Palette.text;
-                                    font-size: 18px;
-                                    font-weight: 600;
-                                    overflow: elide;
-                                }
+            // --------------------------------------------------- album detail
+                if root.section == "album": VerticalLayout {
+                alignment: start;
+                vertical-stretch: 1;
 
-                                HorizontalLayout {
-                                    spacing: 8px;
+                VerticalLayout {
+                    alignment: start;
+                    padding: 24px;
+                    spacing: 6px;
 
-                                    Rectangle {
-                                        height: 18px;
-                                        width: artist-link.preferred-width;
-                                        background: transparent;
+                    HorizontalLayout {
+                        spacing: 12px;
 
-                                        artist-link := Text {
-                                            text: root.album-artist;
-                                            color: artist-touch.has-hover ? Palette.accent : Palette.muted;
-                                            font-size: 12px;
-                                            vertical-alignment: center;
-                                        }
+                        VerticalLayout {
+                            alignment: start;
+                            spacing: 4px;
 
-                                        artist-touch := TouchArea {
-                                            clicked => {
-                                                root.open-artist(root.album-artist-id, root.album-artist);
-                                            }
-                                        }
-                                    }
+                            Text {
+                                text: root.album-title;
+                                color: Palette.text;
+                                font-size: 18px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
 
-                                    Text {
-                                        text: root.album-meta;
-                                        color: Palette.muted;
+                            HorizontalLayout {
+                                spacing: 8px;
+
+                                Rectangle {
+                                    height: 18px;
+                                    width: artist-link.preferred-width;
+                                    background: transparent;
+
+                                    artist-link := Text {
+                                        text: root.album-artist;
+                                        color: artist-touch.has-hover ? Palette.accent : Palette.muted;
                                         font-size: 12px;
                                         vertical-alignment: center;
                                     }
 
-                                    Rectangle {
-                                        horizontal-stretch: 1;
+                                    artist-touch := TouchArea {
+                                        clicked => {
+                                            root.open-artist(root.album-artist-id, root.album-artist);
+                                        }
                                     }
                                 }
-                            }
 
-                            Rectangle {
-                                horizontal-stretch: 1;
-                            }
+                                Text {
+                                    text: root.album-meta;
+                                    color: Palette.muted;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
 
-                            ActionButton {
-                                label: "Back";
-                                clicked => {
-                                    root.section-changed(root.album-back);
+                                Rectangle {
+                                    horizontal-stretch: 1;
                                 }
                             }
+                        }
 
-                            ActionButton {
-                                label: "Play album";
-                                primary: true;
-                                clicked => {
-                                    root.play-album();
-                                }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+
+                        ActionButton {
+                            label: "Back";
+                            clicked => {
+                                root.section-changed(root.album-back);
+                            }
+                        }
+
+                        ActionButton {
+                            label: "Play album";
+                            primary: true;
+                            clicked => {
+                                root.play-album();
+                            }
+                        }
+                    }
+                }
+
+                TrackList {
+                    vertical-stretch: 1;
+                    rows: root.album-tracks;
+                    empty-message: "This album has no tracks Sonora can play.";
+                    activated(id) => {
+                        root.album-track-activated(id);
+                    }
+                    play-next(id) => {
+                        root.play-next-requested(id);
+                    }
+                    enqueue(id) => {
+                        root.enqueue-requested(id);
+                    }
+                    favourite(id, starred) => {
+                        root.favourite-toggled(id, starred);
+                    }
+                    rate(id, rating) => {
+                        root.rating-changed(id, rating);
+                    }
+                    open-album(id) => { root.open-album(id); }
+                    open-artist(id, name) => { root.open-artist(id, name); }
+                    add-to-playlist(id, title) => {
+                        root.open-playlist-picker(id, title);
+                    }
+                }
+            }
+
+            // -------------------------------------------------- artist detail
+                if root.section == "artist": ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    alignment: start;
+                    padding: 24px;
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        VerticalLayout {
+                            alignment: start;
+                            spacing: 4px;
+
+                            Text {
+                                text: root.artist-name;
+                                color: Palette.text;
+                                font-size: 18px;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                text: root.artist-meta;
+                                color: Palette.muted;
+                                font-size: 12px;
+                                overflow: elide;
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+
+                        ActionButton {
+                            label: "Back";
+                            clicked => {
+                                root.section-changed(root.artist-back);
+                            }
+                        }
+
+                        ActionButton {
+                            label: "Play all";
+                            primary: true;
+                            clicked => {
+                                root.play-artist();
                             }
                         }
                     }
 
-                    TrackList {
-                        vertical-stretch: 1;
-                        rows: root.album-tracks;
-                        empty-message: "This album has no tracks Sonora can play.";
+                    if root.artist-albums.length > 0: Text {
+                        text: "Albums";
+                        color: Palette.text;
+                        font-size: 14px;
+                        font-weight: 600;
+                    }
+
+                    for item in root.artist-albums: AlbumCard {
+                        album: item;
+                        opened(id) => { root.open-album(id); }
+                        open-artist(id, name) => { root.open-artist(id, name); }
+                    }
+
+                    if root.artist-tracks.length > 0: Text {
+                        text: "Tracks";
+                        color: Palette.text;
+                        font-size: 14px;
+                        font-weight: 600;
+                    }
+
+                    if root.artist-tracks.length == 0 && root.artist-albums.length == 0: EmptyState {
+                        message: "Nothing by this artist is indexed.";
+                    }
+
+                    for item[index] in root.artist-tracks: TrackRowItem {
+                        track: item;
+                        position: index + 1;
+                        show-index: true;
                         activated(id) => {
-                            root.album-track-activated(id);
+                            root.artist-track-activated(id);
                         }
                         play-next(id) => {
                             root.play-next-requested(id);
@@ -2836,300 +3834,227 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+            }
+        }
+    }
 
-                // -------------------------------------------------- artist detail
-                if root.section == "artist" : ScrollView {
+    if root.lyrics-open: LyricsPanel {
+        x: root.width - root.rail-width - 10px * root.design-scale;
+        y: root.content-top;
+        width: root.rail-width;
+        height: root.height - self.y - 9px * root.design-scale;
+        following <=> root.lyrics-following;
+        text: root.lyrics-text;
+        status: root.lyrics-status;
+        lines: root.lyric-lines;
+        active: root.lyric-active;
+        close => { root.lyrics-open = false; }
+    }
+    if root.queue-open: QueuePanel {
+        x: root.width - root.rail-width - 10px * root.design-scale;
+        y: root.content-top;
+        width: root.rail-width;
+        height: root.height - self.y - 9px * root.design-scale;
+        scale: root.design-scale;
+        context: root.section == "playlist" ? root.playlist-title : "Library";
+        entries: root.queue-entries;
+        artworks: root.queue-artworks;
+        remove(index) => { root.queue-remove(index); }
+        move(from, to) => { root.queue-move(from, to); }
+        open-album(id) => { root.open-album(id); }
+        open-artist(id, name) => { root.open-artist(id, name); }
+    }
+    Text {
+        x: 286px * root.design-scale;
+        y: root.height - self.height - 12px;
+        width: max(100px, root.width - self.x - root.rail-width - 32px);
+        text: root.status;
+        color: Palette.muted;
+        font-size: 11px;
+        overflow: elide;
+    }
+                // ------------------------------------------------------- playback device picker
+                if root.device-picker-open: Rectangle {
+        width: root.width;
+        height: root.height;
+        background: Palette.sidebar;
+
+        Rectangle {
+            width: 340px;
+            height: 340px;
+            background: Palette.panel;
+            border-radius: 10px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+
+            VerticalLayout {
+                alignment: start;
+                padding: 14px;
+                spacing: 12px;
+
+                Text {
+                    text: "Playback device";
+                    color: Palette.text;
+                    font-size: 14px;
+                    font-weight: 700;
+                }
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    height: 220px;
+
                     VerticalLayout {
-                        padding: 24px;
-                        spacing: 12px;
+                        alignment: start;
+                        spacing: 4px;
 
-                        HorizontalLayout {
-                            spacing: 12px;
+                        for device[index] in root.devices: Rectangle {
+                            height: 40px;
+                            horizontal-stretch: 1;
+                            background: root.device-picker-selected == index ? Palette.accent-soft : transparent;
+                            border-radius: 6px;
 
-                            VerticalLayout {
-                                spacing: 4px;
-
-                                Text {
-                                    text: root.artist-name;
-                                    color: Palette.text;
-                                    font-size: 18px;
-                                    font-weight: 600;
-                                    overflow: elide;
-                                }
-
-                                Text {
-                                    text: root.artist-meta;
-                                    color: Palette.muted;
-                                    font-size: 12px;
-                                    overflow: elide;
-                                }
+                            Text {
+                                text: device;
+                                color: root.device-picker-selected == index ? Palette.accent : Palette.text;
+                                font-size: 13px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
                             }
 
-                            Rectangle {
-                                horizontal-stretch: 1;
-                            }
-
-                            ActionButton {
-                                label: "Back";
+                            touch := TouchArea {
                                 clicked => {
-                                    root.section-changed(root.artist-back);
+                                    root.device-picker-selected = index;
+                                    root.device-picker-select(device);
                                 }
-                            }
-
-                            ActionButton {
-                                label: "Play all";
-                                primary: true;
-                                clicked => {
-                                    root.play-artist();
-                                }
-                            }
-                        }
-
-                        if root.artist-albums.length > 0 : Text {
-                            text: "Albums";
-                            color: Palette.text;
-                            font-size: 14px;
-                            font-weight: 600;
-                        }
-
-                        for item in root.artist-albums : AlbumCard {
-                            album: item;
-                            opened(id) => { root.open-album(id); }
-                            open-artist(id, name) => { root.open-artist(id, name); }
-                        }
-
-                        if root.artist-tracks.length > 0 : Text {
-                            text: "Tracks";
-                            color: Palette.text;
-                            font-size: 14px;
-                            font-weight: 600;
-                        }
-
-                        if root.artist-tracks.length == 0 && root.artist-albums.length == 0 : EmptyState {
-                            message: "Nothing by this artist is indexed.";
-                        }
-
-                        for item[index] in root.artist-tracks : TrackRowItem {
-                            track: item;
-                            position: index + 1;
-                            show-index: true;
-                            activated(id) => {
-                                root.artist-track-activated(id);
-                            }
-                            play-next(id) => {
-                                root.play-next-requested(id);
-                            }
-                            enqueue(id) => {
-                                root.enqueue-requested(id);
-                            }
-                            favourite(id, starred) => {
-                                root.favourite-toggled(id, starred);
-                            }
-                            rate(id, rating) => {
-                                root.rating-changed(id, rating);
-                            }
-                            open-album(id) => { root.open-album(id); }
-                            open-artist(id, name) => { root.open-artist(id, name); }
-                            add-to-playlist(id, title) => {
-                                root.open-playlist-picker(id, title);
                             }
                         }
                     }
                 }
 
-                // ------------------------------------------------------ folders
-                if root.section == "folders" : ScrollView {
-                    VerticalLayout {
-                        padding: 24px;
-                        spacing: 14px;
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 0px;
 
-                        Text {
-                            text: "Sonora indexes every supported audio file inside these folders, including subfolders. Re-scanning only touches files that changed.";
-                            color: Palette.muted;
-                            font-size: 13px;
-                            wrap: word-wrap;
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+
+                    ActionButton {
+                        label: "Cancel";
+                        clicked => {
+                            root.device-picker-open = false;
+                            root.device-picker-cancel();
                         }
+                    }
 
-                        HorizontalLayout {
-                            spacing: 10px;
-
-                            LineEdit {
-                                text: root.folder-path;
-                                placeholder-text: root.folder-hint;
-                                edited(text) => {
-                                    root.folder-path = text;
-                                }
-                                horizontal-stretch: 1;
-                            }
-
-                            ActionButton {
-                                label: "Browse…";
-                                primary: false;
-                                clicked => {
-                                    root.browse-folder();
-                                }
-                            }
-
-                            ActionButton {
-                                label: "Add folder";
-                                clicked => {
-                                    root.add-folder(root.folder-path);
-                                }
-                            }
-                        }
-
-                        if root.folders.length == 0 : EmptyState {
-                            message: "No library folders yet.";
-                        }
-
-                        for folder in root.folders : Rectangle {
-                            height: 46px;
-                            border-radius: 8px;
-                            background: Palette.panel;
-
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                spacing: 10px;
-
-                                Text {
-                                    text: folder;
-                                    color: Palette.text;
-                                    font-size: 13px;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                }
-                            }
-                        }
+                    Rectangle {
+                        horizontal-stretch: 1;
                     }
                 }
             }
+        }
+    }
 
-            // ------------------------------------------------------ queue panel
-            if root.lyrics-open : LyricsPanel {
-                text: root.lyrics-text;
-                status: root.lyrics-status;
-                lines: root.lyric-lines;
-                active: root.lyric-active;
-                close() => {
-                    root.lyrics-open = false;
-                }
-                fetch() => {
-                    root.lyrics-fetch();
-                }
-            }
+    if root.cache-confirm: Rectangle {
+        width: root.width;
+        height: root.height;
+        background: #000000aa;
+        TouchArea { }
 
-            if root.queue-open : QueuePanel {
-                entries: root.queue-entries;
-                remove(index) => {
-                    root.queue-remove(index);
+        Rectangle {
+            width: min(480px, root.width - 48px);
+            height: 240px;
+            border-radius: Palette.panel-radius;
+            background: Palette.bg;
+            VerticalLayout {
+                alignment: start;
+                padding: 24px;
+                spacing: 14px;
+                Text {
+                    text: "Clear track cache?";
+                    color: Palette.text;
+                    font-size: 20px;
+                    font-weight: 600;
                 }
-                move(from, to) => {
-                    root.queue-move(from, to);
+
+                Text {
+                    text: "Remove registered cached files. Playing and queued tracks, library originals, playlists, favourites and settings are kept. " + root.cache-size;
+                    color: Palette.muted;
+                    font-size: 13px;
+                    wrap: word-wrap;
                 }
-                open-album(id) => { root.open-album(id); }
-                open-artist(id, name) => { root.open-artist(id, name); }
+
+                HorizontalLayout {
+                    ActionButton {
+                        label: "Cancel";
+                        primary: false;
+                        clicked => { root.cache-confirm = false; }
+                    }
+
+                    ActionButton {
+                        label: "Clear Cache";
+                        clicked => { root.cache-confirm = false; root.cache-action(true); }
+                    }
+                }
             }
         }
+    }
+    if root.playlist-picker-open: PlaylistPicker {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
 
-        // --------------------------------------------------------- transport
-        if root.playback-available : TransportBar {
-            title: root.now-playing-title;
-            subtitle: root.now-playing-subtitle;
-            playing: root.playing;
-            position-ms: root.position-ms;
-            duration-ms: root.duration-ms;
-            position-label: root.position-label;
-            duration-label: root.duration-label;
-            volume: root.volume;
-            artwork: root.artwork;
-            current-count: root.current-count;
-            upcoming-count: root.upcoming-count;
-            history-count: root.history-count;
-
-            toggle() => {
-                root.toggle-playback();
-            }
-            previous() => {
-                root.previous-track();
-            }
-            next() => {
-                root.next-track();
-            }
-            seek(ms) => {
-                root.seek-requested(ms);
-            }
-            volume-changed(value) => {
-                root.volume-changed(value);
-            }
-            queue-toggle() => {
-                root.queue-open = !root.queue-open;
-            }
-            lyrics-toggle() => {
-                root.lyrics-toggle();
-            }
-            open-album(id) => { root.open-album(id); }
-            open-artist(id, name) => { root.open-artist(id, name); }
+        playlists: root.playlists;
+        track-title: root.playlist-picker-title;
+        picked(id) => {
+            root.playlist-add(id, root.playlist-picker-track);
         }
+        dismissed() => {
+            root.playlist-picker-close();
         }
+    }
 
-        if root.playlist-picker-open : PlaylistPicker {
-            x: 0;
-            y: 0;
-            width: parent.width;
-            height: parent.height;
+    if root.onboarding-open: OnboardingOverlay {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
 
-            playlists: root.playlists;
-            track-title: root.playlist-picker-title;
-            picked(id) => {
-                root.playlist-add(id, root.playlist-picker-track);
-            }
-            dismissed() => {
-                root.playlist-picker-close();
-            }
+        step: root.onboarding-step;
+        folder-path: root.folder-path;
+        folder-hint: root.folder-hint;
+        folder-count: root.folders.length;
+        format-tier: root.settings-format-tier;
+        bitrate: root.settings-bitrate;
+        lastfm-key: root.settings-lastfm-key;
+
+        folder-path-changed(text) => {
+            root.folder-path = text;
         }
-
-        if root.onboarding-open : OnboardingOverlay {
-            x: 0;
-            y: 0;
-            width: parent.width;
-            height: parent.height;
-
-            step: root.onboarding-step;
-            folder-path: root.folder-path;
-            folder-hint: root.folder-hint;
-            folder-count: root.folders.length;
-            format-tier: root.settings-format-tier;
-            bitrate: root.settings-bitrate;
-            lastfm-key: root.settings-lastfm-key;
-
-            folder-path-changed(text) => {
-                root.folder-path = text;
-            }
-            add-folder(path) => {
-                root.add-folder(path);
-            }
-            browse-folder() => {
-                root.browse-folder();
-            }
-            tier-changed(tier) => {
-                root.settings-format-tier = tier;
-            }
-            bitrate-changed(value) => {
-                root.settings-bitrate = value;
-            }
-            lastfm-changed(key) => {
-                root.settings-lastfm-key = key;
-            }
-            next() => {
-                root.onboarding-next();
-            }
-            back() => {
-                root.onboarding-back();
-            }
-            finish() => {
-                root.onboarding-finish();
-            }
+        add-folder(path) => {
+            root.add-folder(path);
+        }
+        browse-folder() => {
+            root.browse-folder();
+        }
+        tier-changed(tier) => {
+            root.settings-format-tier = tier;
+        }
+        bitrate-changed(value) => {
+            root.settings-bitrate = value;
+        }
+        lastfm-changed(key) => {
+            root.settings-lastfm-key = key;
+        }
+        next() => {
+            root.onboarding-next();
+        }
+        back() => {
+            root.onboarding-back();
+        }
+        finish() => {
+            root.onboarding-finish();
         }
     }
 }

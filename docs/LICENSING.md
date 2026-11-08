@@ -28,6 +28,19 @@ compatible with every dependency below.
 | `env_logger`, `log` | 0.11 / 0.4 | MIT / Apache-2.0 | Logging |
 | `tempfile` (dev) | 3.x | MIT / Apache-2.0 | Test fixtures |
 
+## Repair assets and tooling
+
+The UI now depends on the existing internal `sonora-cache` crate, under the
+project's GPL-3.0-or-later licence. No new external Rust dependency was added.
+Seven vector components were extracted from the supplied `FIGMA/sonora.fig`;
+provenance is recorded in `assets/design/README.md`. The album images remain
+reference/test input and are not hardcoded into the application.
+
+The offline Figma parser and reference renderer were used under `/tmp` only;
+no JavaScript runtime, browser engine or parser dependency is shipped with
+Sonora. The Nix shell adds native development/runtime libraries already needed
+by Slint and GStreamer, not a proprietary runtime.
+
 ## Planned integrations — licence status
 
 | Item | Status |

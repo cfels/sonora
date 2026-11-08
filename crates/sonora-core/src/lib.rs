@@ -22,8 +22,8 @@ pub use model::{
 pub use playlists::{PlaylistRules, SMART_LIMIT_DEFAULT, SMART_LIMIT_MAX};
 pub use queue::{Queue, QueueSnapshot, RepeatMode};
 pub use settings::{
-    ArtworkFormat, ArtworkSettings, FolderTemplate, FormatPreference, FormatTier, Settings,
-    DEFAULT_FOLDER_TEMPLATE, QUEUE_KEY, SETTINGS_KEY,
+    AppearanceSettings, ArtworkFormat, ArtworkSettings, FolderTemplate, FormatPreference,
+    FormatTier, HistoryRetention, Settings, DEFAULT_FOLDER_TEMPLATE, QUEUE_KEY, SETTINGS_KEY,
 };
 pub use util::{
     format_duration, new_rng, normalize_key, parse_artist_title, sort_key, without_extension,

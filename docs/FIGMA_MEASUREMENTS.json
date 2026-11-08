@@ -1,0 +1,6442 @@
+{
+  "source": "FIGMA/sonora.fig",
+  "note": "Decoded visible nodes; original geometry/styles, no invented measurements.",
+  "nodes": [
+    {
+      "guid": {
+        "sessionID": 0,
+        "localID": 0
+      },
+      "type": "DOCUMENT",
+      "name": "Document",
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 0,
+        "localID": 1
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 0,
+          "localID": 0
+        },
+        "position": "!"
+      },
+      "type": "CANVAS",
+      "name": "Page 1",
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 2,
+        "localID": 3
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 0,
+          "localID": 1
+        },
+        "position": "!"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "image 1",
+      "size": {
+        "x": 974,
+        "y": 591
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": -286,
+        "m10": 0,
+        "m11": 1,
+        "m12": -90
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 225,
+              "1": 54,
+              "2": 56,
+              "3": 43,
+              "4": 181,
+              "5": 164,
+              "6": 149,
+              "7": 84,
+              "8": 0,
+              "9": 85,
+              "10": 126,
+              "11": 40,
+              "12": 198,
+              "13": 112,
+              "14": 20,
+              "15": 87,
+              "16": 131,
+              "17": 74,
+              "18": 59,
+              "19": 205
+            },
+            "name": "image"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 236,
+              "1": 98,
+              "2": 10,
+              "3": 243,
+              "4": 184,
+              "5": 0,
+              "6": 246,
+              "7": 235,
+              "8": 128,
+              "9": 148,
+              "10": 20,
+              "11": 191,
+              "12": 162,
+              "13": 67,
+              "14": 215,
+              "15": 219,
+              "16": 183,
+              "17": 17,
+              "18": 194,
+              "19": 35
+            },
+            "name": "image"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 974,
+          "originalImageHeight": 591,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 2,
+        "localID": 5
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 0,
+          "localID": 1
+        },
+        "position": "\""
+      },
+      "type": "FRAME",
+      "name": "Frame 1",
+      "size": {
+        "x": 1920,
+        "y": 1080
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 755,
+        "m10": 0,
+        "m11": 1,
+        "m12": -90
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.07692307978868484,
+            "g": 0.07692307978868484,
+            "b": 0.07692307978868484,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.07692307978868484,
+            "c1": 0.07692307978868484,
+            "c2": 0.07692307978868484,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 6
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "!C"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 1",
+      "size": {
+        "x": 90,
+        "y": 90
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 10,
+        "m10": 0,
+        "m11": 1,
+        "m12": 10
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.7067307829856873,
+            "g": 0.7067307829856873,
+            "b": 0.7067307829856873,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.7067307829856873,
+            "c1": 0.7067307829856873,
+            "c2": 0.7067307829856873,
+            "c3": 0.4000000059604645
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "offset": {
+            "x": 0,
+            "y": 4
+          },
+          "radius": 59.20000076293945,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "spread": 0,
+          "showShadowBehindNode": false,
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 7
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "\""
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 2",
+      "size": {
+        "x": 1801,
+        "y": 90
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 109,
+        "m10": 0,
+        "m11": 1,
+        "m12": 10
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.7067307829856873,
+            "g": 0.7067307829856873,
+            "b": 0.7067307829856873,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.7067307829856873,
+            "c1": 0.7067307829856873,
+            "c2": 0.7067307829856873,
+            "c3": 0.4000000059604645
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "offset": {
+            "x": 0,
+            "y": 4
+          },
+          "radius": 59.20000076293945,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "spread": 0,
+          "showShadowBehindNode": false,
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 9
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "!O"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 3",
+      "size": {
+        "x": 265,
+        "y": 960
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 10,
+        "m10": 0,
+        "m11": 1,
+        "m12": 111
+      },
+      "cornerRadius": 13,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.7067307829856873,
+            "g": 0.7067307829856873,
+            "b": 0.7067307829856873,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.7067307829856873,
+            "c1": 0.7067307829856873,
+            "c2": 0.7067307829856873,
+            "c3": 0.4000000059604645
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "offset": {
+            "x": 0,
+            "y": 4
+          },
+          "radius": 59.20000076293945,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "spread": 0,
+          "showShadowBehindNode": false,
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 51
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "$"
+      },
+      "type": "TEXT",
+      "name": "Title",
+      "size": {
+        "x": 276,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 121,
+        "m10": 0,
+        "m11": 1,
+        "m12": 19
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 40,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 52
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "%"
+      },
+      "type": "TEXT",
+      "name": "Artist ~ Album/Playlist",
+      "size": {
+        "x": 547,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 124,
+        "m10": 0,
+        "m11": 1,
+        "m12": 65
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 20,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 53
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "!f"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 4",
+      "size": {
+        "x": 250,
+        "y": 250
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 18,
+        "m10": 0,
+        "m11": 1,
+        "m12": 118
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 89,
+              "1": 246,
+              "2": 95,
+              "3": 225,
+              "4": 129,
+              "5": 250,
+              "6": 45,
+              "7": 95,
+              "8": 10,
+              "9": 63,
+              "10": 171,
+              "11": 67,
+              "12": 194,
+              "13": 103,
+              "14": 149,
+              "15": 44,
+              "16": 89,
+              "17": 176,
+              "18": 46,
+              "19": 118
+            },
+            "name": "images"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 206,
+              "1": 151,
+              "2": 207,
+              "3": 213,
+              "4": 149,
+              "5": 19,
+              "6": 121,
+              "7": 27,
+              "8": 252,
+              "9": 177,
+              "10": 142,
+              "11": 32,
+              "12": 175,
+              "13": 128,
+              "14": 39,
+              "15": 228,
+              "16": 123,
+              "17": 207,
+              "18": 49,
+              "19": 94
+            },
+            "name": "images"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 558,
+          "originalImageHeight": 549,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 55
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "&"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 5",
+      "size": {
+        "x": 250,
+        "y": 90
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 18,
+        "m10": 0,
+        "m11": 1,
+        "m12": 376
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.7067307829856873,
+            "g": 0.7067307829856873,
+            "b": 0.7067307829856873,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.7067307829856873,
+            "c1": 0.7067307829856873,
+            "c2": 0.7067307829856873,
+            "c3": 0.4000000059604645
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 65
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "'"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 23.243635177612305,
+        "y": 22.597980499267578
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 54.469112396240234,
+        "m10": 0,
+        "m11": 1,
+        "m12": 409.3171691894531
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 71
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "("
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 19.383434295654297,
+        "y": 22.804040908813477
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 133.7426300048828,
+        "m10": 0,
+        "m11": 1,
+        "m12": 409.3656311035156
+      },
+      "cornerRadius": 8.55151653289795,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 73
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "'O"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 23.243635177612305,
+        "y": 22.597980499267578
+      },
+      "transform": {
+        "m00": -1,
+        "m01": 0,
+        "m02": 232.39959716796875,
+        "m10": 0,
+        "m11": 1,
+        "m12": 409.3171691894531
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 75
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": ")"
+      },
+      "type": "LINE",
+      "name": "Line 1",
+      "size": {
+        "x": 50,
+        "y": 0
+      },
+      "transform": {
+        "m00": 6.123234262925839e-17,
+        "m01": -1,
+        "m02": 106.18182373046875,
+        "m10": 1,
+        "m11": 6.123234262925839e-17,
+        "m12": 396
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 76
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "*"
+      },
+      "type": "LINE",
+      "name": "Line 2",
+      "size": {
+        "x": 50,
+        "y": 0
+      },
+      "transform": {
+        "m00": 6.123234262925839e-17,
+        "m01": -1,
+        "m02": 180.6868896484375,
+        "m10": 1,
+        "m11": 6.123234262925839e-17,
+        "m12": 396
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 78
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "&O"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 6",
+      "size": {
+        "x": 250,
+        "y": 90
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 18,
+        "m10": 0,
+        "m11": 1,
+        "m12": 474
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.7067307829856873,
+            "g": 0.7067307829856873,
+            "b": 0.7067307829856873,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.7067307829856873,
+            "c1": 0.7067307829856873,
+            "c2": 0.7067307829856873,
+            "c3": 0.4000000059604645
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 82
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": ")O"
+      },
+      "type": "LINE",
+      "name": "Line 3",
+      "size": {
+        "x": 50,
+        "y": 0
+      },
+      "transform": {
+        "m00": 6.123234262925839e-17,
+        "m01": -1,
+        "m02": 105.6181640625,
+        "m10": 1,
+        "m11": 6.123234262925839e-17,
+        "m12": 494
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 83
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "+"
+      },
+      "type": "LINE",
+      "name": "Line 4",
+      "size": {
+        "x": 50,
+        "y": 0
+      },
+      "transform": {
+        "m00": 6.123234262925839e-17,
+        "m01": -1,
+        "m02": 180.12322998046875,
+        "m10": 1,
+        "m11": 6.123234262925839e-17,
+        "m12": 494
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 97
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "'C"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 27,
+        "y": 30
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 52.027259826660156,
+        "m10": 0,
+        "m11": 1,
+        "m12": 503.6161804199219
+      },
+      "cornerRadius": 0.7500000596046448,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 99
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "(f"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 25,
+        "y": 25
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 130.37069702148438,
+        "m10": 0,
+        "m11": 1,
+        "m12": 506.2676696777344
+      },
+      "cornerRadius": 0.694444477558136,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 101
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "'r"
+      },
+      "type": "FRAME",
+      "name": "Group",
+      "size": {
+        "x": 28.509103775024414,
+        "y": 27.490924835205078
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 206.5636444091797,
+        "m10": 0,
+        "m11": 1,
+        "m12": 505.4363708496094
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 102
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 101
+        },
+        "position": "!"
+      },
+      "type": "FRAME",
+      "name": "Group",
+      "size": {
+        "x": 28.509103775024414,
+        "y": 27.490924835205078
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 103
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 102
+        },
+        "position": "!"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 19.636363983154297,
+        "y": 26.18181800842285
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": -2.174377368646674e-05,
+        "m10": 0,
+        "m11": 1,
+        "m12": 1.3091011047363281
+      },
+      "cornerRadius": 0.800000011920929,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 104
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 102
+        },
+        "position": "\""
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 10.472726821899414,
+        "y": 14.399999618530273
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 18.03635597229004,
+        "m10": 0,
+        "m11": 1,
+        "m12": -5.34057608092553e-06
+      },
+      "cornerRadius": 0.800000011920929,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 106
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 116
+        },
+        "position": "*"
+      },
+      "type": "TEXT",
+      "name": "Discover",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 108
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 116
+        },
+        "position": "+"
+      },
+      "type": "TEXT",
+      "name": "Tracks",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 53
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 109
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 116
+        },
+        "position": ","
+      },
+      "type": "TEXT",
+      "name": "Playlists",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 106
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 110
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 116
+        },
+        "position": "-"
+      },
+      "type": "TEXT",
+      "name": "Albums",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 159
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 111
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 116
+        },
+        "position": "."
+      },
+      "type": "TEXT",
+      "name": "Artists",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 212
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 112
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 116
+        },
+        "position": "/"
+      },
+      "type": "TEXT",
+      "name": "Cached",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 265
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 113
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 116
+        },
+        "position": "0"
+      },
+      "type": "TEXT",
+      "name": "Profile",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 318
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 114
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 116
+        },
+        "position": "1"
+      },
+      "type": "TEXT",
+      "name": "Settings",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 424
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 115
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 116
+        },
+        "position": "0O"
+      },
+      "type": "TEXT",
+      "name": "Sync",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 371
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 116
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3O"
+      },
+      "type": "FRAME",
+      "name": "Frame 2",
+      "size": {
+        "x": 250,
+        "y": 452
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 18,
+        "m10": 0,
+        "m11": 1,
+        "m12": 591
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 117
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "!Z"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 7",
+      "size": {
+        "x": 374,
+        "y": 960
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1536,
+        "m10": 0,
+        "m11": 1,
+        "m12": 111
+      },
+      "cornerRadius": 13,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.7067307829856873,
+            "g": 0.7067307829856873,
+            "b": 0.7067307829856873,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.7067307829856873,
+            "c1": 0.7067307829856873,
+            "c2": 0.7067307829856873,
+            "c3": 0.4000000059604645
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "offset": {
+            "x": 0,
+            "y": 4
+          },
+          "radius": 59.20000076293945,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "spread": 0,
+          "showShadowBehindNode": false,
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 118
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "$O"
+      },
+      "type": "TEXT",
+      "name": "Playing from:",
+      "size": {
+        "x": 285,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 117
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semilight",
+        "postscript": "SegoeUI-Semilight"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 119
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "%O"
+      },
+      "type": "TEXT",
+      "name": "LOSERCORE PLAYLIST",
+      "size": {
+        "x": 349,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 153
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 32,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Bold",
+        "postscript": "SegoeUI-Bold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 120
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "%f"
+      },
+      "type": "TEXT",
+      "name": "Queue",
+      "size": {
+        "x": 349,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 207
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 32,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 121
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3P"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 8",
+      "size": {
+        "x": 64,
+        "y": 64
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 253
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 156,
+          "originalImageHeight": 160,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 125
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3Q"
+      },
+      "type": "TEXT",
+      "name": "Title",
+      "size": {
+        "x": 121,
+        "y": 25
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1624,
+        "m10": 0,
+        "m11": 1,
+        "m12": 257
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 35.26411819458008,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 126
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3R"
+      },
+      "type": "TEXT",
+      "name": "Artist",
+      "size": {
+        "x": 154,
+        "y": 24
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1625,
+        "m10": 0,
+        "m11": 1,
+        "m12": 289.2113037109375
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 17.63205909729004,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 130
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3PO"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 9",
+      "size": {
+        "x": 64,
+        "y": 64
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 325
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 156,
+          "originalImageHeight": 160,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 131
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3QO"
+      },
+      "type": "TEXT",
+      "name": "Title",
+      "size": {
+        "x": 121,
+        "y": 25
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1624,
+        "m10": 0,
+        "m11": 1,
+        "m12": 329
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 35.26411819458008,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 132
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3S"
+      },
+      "type": "TEXT",
+      "name": "Artist",
+      "size": {
+        "x": 154,
+        "y": 24
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1625,
+        "m10": 0,
+        "m11": 1,
+        "m12": 361.2113037109375
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 17.63205909729004,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 133
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3Pf"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 10",
+      "size": {
+        "x": 64,
+        "y": 64
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 397
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 156,
+          "originalImageHeight": 160,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 134
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3Qf"
+      },
+      "type": "TEXT",
+      "name": "Title",
+      "size": {
+        "x": 121,
+        "y": 25
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1624,
+        "m10": 0,
+        "m11": 1,
+        "m12": 401
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 35.26411819458008,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 135
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3T"
+      },
+      "type": "TEXT",
+      "name": "Artist",
+      "size": {
+        "x": 154,
+        "y": 24
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1625,
+        "m10": 0,
+        "m11": 1,
+        "m12": 433.2113037109375
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 17.63205909729004,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 136
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "!7"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "BG BLUR",
+      "size": {
+        "x": 1920,
+        "y": 1080
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 1
+          },
+          "opacity": 0.4399999976158142,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.4399999976158142
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "offset": {
+            "x": 0,
+            "y": 4
+          },
+          "radius": 347.5,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "spread": 0,
+          "showShadowBehindNode": false,
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 138
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "!6"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 11",
+      "size": {
+        "x": 973,
+        "y": 835
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 89,
+              "1": 246,
+              "2": 95,
+              "3": 225,
+              "4": 129,
+              "5": 250,
+              "6": 45,
+              "7": 95,
+              "8": 10,
+              "9": 63,
+              "10": 171,
+              "11": 67,
+              "12": 194,
+              "13": 103,
+              "14": 149,
+              "15": 44,
+              "16": 89,
+              "17": 176,
+              "18": 46,
+              "19": 118
+            },
+            "name": "images"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 206,
+              "1": 151,
+              "2": 207,
+              "3": 213,
+              "4": 149,
+              "5": 19,
+              "6": 121,
+              "7": 27,
+              "8": 252,
+              "9": 177,
+              "10": 142,
+              "11": 32,
+              "12": 175,
+              "13": 128,
+              "14": 39,
+              "15": 228,
+              "16": 123,
+              "17": 207,
+              "18": 49,
+              "19": 94
+            },
+            "name": "images"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 558,
+          "originalImageHeight": 549,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 140
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "!6O"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 12",
+      "size": {
+        "x": 982,
+        "y": 831
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 938,
+        "m10": 0,
+        "m11": 1,
+        "m12": 249
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 156,
+          "originalImageHeight": 160,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 191
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 0,
+          "localID": 1
+        },
+        "position": "#"
+      },
+      "type": "FRAME",
+      "name": "Frame 2",
+      "size": {
+        "x": 1920,
+        "y": 1080
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 755,
+        "m10": 0,
+        "m11": 1,
+        "m12": 1042
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.07692307978868484,
+            "g": 0.07692307978868484,
+            "b": 0.07692307978868484,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.07692307978868484,
+            "c1": 0.07692307978868484,
+            "c2": 0.07692307978868484,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 192
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "!6"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 11",
+      "size": {
+        "x": 1296,
+        "y": 1112
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 191,
+              "1": 94,
+              "2": 53,
+              "3": 63,
+              "4": 224,
+              "5": 230,
+              "6": 45,
+              "7": 12,
+              "8": 96,
+              "9": 43,
+              "10": 171,
+              "11": 89,
+              "12": 165,
+              "13": 124,
+              "14": 219,
+              "15": 255,
+              "16": 32,
+              "17": 180,
+              "18": 47,
+              "19": 101
+            },
+            "name": "unnamed"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 223,
+              "1": 219,
+              "2": 56,
+              "3": 128,
+              "4": 172,
+              "5": 90,
+              "6": 52,
+              "7": 98,
+              "8": 213,
+              "9": 130,
+              "10": 24,
+              "11": 100,
+              "12": 178,
+              "13": 141,
+              "14": 115,
+              "15": 126,
+              "16": 247,
+              "17": 162,
+              "18": 225,
+              "19": 96
+            },
+            "name": "unnamed"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 544,
+          "originalImageHeight": 544,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 193
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "!6O"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 12",
+      "size": {
+        "x": 1291,
+        "y": 1092
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 946,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 156,
+          "originalImageHeight": 160,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 194
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "!7"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "BG BLUR",
+      "size": {
+        "x": 1920,
+        "y": 1080
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 1
+          },
+          "opacity": 0.4399999976158142,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.4399999976158142
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "offset": {
+            "x": 0,
+            "y": 4
+          },
+          "radius": 347.5,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "spread": 0,
+          "showShadowBehindNode": false,
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 195
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "!C"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 1",
+      "size": {
+        "x": 90,
+        "y": 90
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 10,
+        "m10": 0,
+        "m11": 1,
+        "m12": 10
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.7067307829856873,
+            "g": 0.7067307829856873,
+            "b": 0.7067307829856873,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.7067307829856873,
+            "c1": 0.7067307829856873,
+            "c2": 0.7067307829856873,
+            "c3": 0.4000000059604645
+          }
+        },
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.932692289352417,
+            "g": 0.45737797021865845,
+            "b": 0.45737797021865845,
+            "a": 1
+          },
+          "opacity": 0.2800000011920929,
+          "visible": true,
+          "blendMode": "SATURATION",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.932692289352417,
+            "c1": 0.45737797021865845,
+            "c2": 0.45737797021865845,
+            "c3": 0.2800000011920929
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "offset": {
+            "x": 0,
+            "y": 4
+          },
+          "radius": 141.1999969482422,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "spread": 0,
+          "showShadowBehindNode": false,
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 196
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "!O"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 3",
+      "size": {
+        "x": 265,
+        "y": 960
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 10,
+        "m10": 0,
+        "m11": 1,
+        "m12": 111
+      },
+      "cornerRadius": 13,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.7067307829856873,
+            "g": 0.7067307829856873,
+            "b": 0.7067307829856873,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.7067307829856873,
+            "c1": 0.7067307829856873,
+            "c2": 0.7067307829856873,
+            "c3": 0.4000000059604645
+          }
+        },
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.932692289352417,
+            "g": 0.45737797021865845,
+            "b": 0.45737797021865845,
+            "a": 1
+          },
+          "opacity": 0.2800000011920929,
+          "visible": true,
+          "blendMode": "SATURATION",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.932692289352417,
+            "c1": 0.45737797021865845,
+            "c2": 0.45737797021865845,
+            "c3": 0.2800000011920929
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "offset": {
+            "x": 0,
+            "y": 4
+          },
+          "radius": 141.1999969482422,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "spread": 0,
+          "showShadowBehindNode": false,
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 197
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "!Z"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 7",
+      "size": {
+        "x": 374,
+        "y": 960
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1536,
+        "m10": 0,
+        "m11": 1,
+        "m12": 111
+      },
+      "cornerRadius": 13,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.7067307829856873,
+            "g": 0.7067307829856873,
+            "b": 0.7067307829856873,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.7067307829856873,
+            "c1": 0.7067307829856873,
+            "c2": 0.7067307829856873,
+            "c3": 0.4000000059604645
+          }
+        },
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.932692289352417,
+            "g": 0.45737797021865845,
+            "b": 0.45737797021865845,
+            "a": 1
+          },
+          "opacity": 0.2800000011920929,
+          "visible": true,
+          "blendMode": "SATURATION",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.932692289352417,
+            "c1": 0.45737797021865845,
+            "c2": 0.45737797021865845,
+            "c3": 0.2800000011920929
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "offset": {
+            "x": 0,
+            "y": 4
+          },
+          "radius": 141.1999969482422,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "spread": 0,
+          "showShadowBehindNode": false,
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 198
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "!f"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 4",
+      "size": {
+        "x": 250,
+        "y": 250
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 18,
+        "m10": 0,
+        "m11": 1,
+        "m12": 118
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 191,
+              "1": 94,
+              "2": 53,
+              "3": 63,
+              "4": 224,
+              "5": 230,
+              "6": 45,
+              "7": 12,
+              "8": 96,
+              "9": 43,
+              "10": 171,
+              "11": 89,
+              "12": 165,
+              "13": 124,
+              "14": 219,
+              "15": 255,
+              "16": 32,
+              "17": 180,
+              "18": 47,
+              "19": 101
+            },
+            "name": "unnamed"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 223,
+              "1": 219,
+              "2": 56,
+              "3": 128,
+              "4": 172,
+              "5": 90,
+              "6": 52,
+              "7": 98,
+              "8": 213,
+              "9": 130,
+              "10": 24,
+              "11": 100,
+              "12": 178,
+              "13": 141,
+              "14": 115,
+              "15": 126,
+              "16": 247,
+              "17": 162,
+              "18": 225,
+              "19": 96
+            },
+            "name": "unnamed"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 544,
+          "originalImageHeight": 544,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 199
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "\""
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 2",
+      "size": {
+        "x": 1801,
+        "y": 90
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 109,
+        "m10": 0,
+        "m11": 1,
+        "m12": 10
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.7067307829856873,
+            "g": 0.7067307829856873,
+            "b": 0.7067307829856873,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.7067307829856873,
+            "c1": 0.7067307829856873,
+            "c2": 0.7067307829856873,
+            "c3": 0.4000000059604645
+          }
+        },
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.932692289352417,
+            "g": 0.45737797021865845,
+            "b": 0.45737797021865845,
+            "a": 1
+          },
+          "opacity": 0.2800000011920929,
+          "visible": true,
+          "blendMode": "SATURATION",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.932692289352417,
+            "c1": 0.45737797021865845,
+            "c2": 0.45737797021865845,
+            "c3": 0.2800000011920929
+          }
+        }
+      ],
+      "effects": [
+        {
+          "type": "BACKGROUND_BLUR",
+          "offset": {
+            "x": 0,
+            "y": 4
+          },
+          "radius": 141.1999969482422,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "spread": 0,
+          "showShadowBehindNode": false,
+          "color": {
+            "r": 0,
+            "g": 0,
+            "b": 0,
+            "a": 0.25
+          },
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0,
+            "c1": 0,
+            "c2": 0,
+            "c3": 0.25
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 201
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "$"
+      },
+      "type": "TEXT",
+      "name": "Hide and Seek",
+      "size": {
+        "x": 276,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 121,
+        "m10": 0,
+        "m11": 1,
+        "m12": 19
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 40,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 202
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "$O"
+      },
+      "type": "TEXT",
+      "name": "Playing from:",
+      "size": {
+        "x": 285,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 117
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semilight",
+        "postscript": "SegoeUI-Semilight"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 203
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "%"
+      },
+      "type": "TEXT",
+      "name": "The Vanished People",
+      "size": {
+        "x": 547,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 124,
+        "m10": 0,
+        "m11": 1,
+        "m12": 65
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 20,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 204
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "%O"
+      },
+      "type": "TEXT",
+      "name": "LOSERCORE PLAYLIST",
+      "size": {
+        "x": 349,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 153
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 32,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Bold",
+        "postscript": "SegoeUI-Bold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 205
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "%f"
+      },
+      "type": "TEXT",
+      "name": "Queue",
+      "size": {
+        "x": 349,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 207
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 32,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 206
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "&"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 5",
+      "size": {
+        "x": 250,
+        "y": 90
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 18,
+        "m10": 0,
+        "m11": 1,
+        "m12": 376
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.03921568766236305,
+            "g": 0.11372549086809158,
+            "b": 0.6078431606292725,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.03921568766236305,
+            "c1": 0.11372549086809158,
+            "c2": 0.6078431606292725,
+            "c3": 0.4000000059604645
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 207
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "&O"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 6",
+      "size": {
+        "x": 250,
+        "y": 90
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 18,
+        "m10": 0,
+        "m11": 1,
+        "m12": 474
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 0.03921568766236305,
+            "g": 0.11372549086809158,
+            "b": 0.6078431606292725,
+            "a": 1
+          },
+          "opacity": 0.4000000059604645,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 0.03921568766236305,
+            "c1": 0.11372549086809158,
+            "c2": 0.6078431606292725,
+            "c3": 0.4000000059604645
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 208
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "'"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 23.243635177612305,
+        "y": 22.597980499267578
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 54.469112396240234,
+        "m10": 0,
+        "m11": 1,
+        "m12": 409.3171691894531
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 209
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "'C"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 27,
+        "y": 30
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 52.027259826660156,
+        "m10": 0,
+        "m11": 1,
+        "m12": 503.6161804199219
+      },
+      "cornerRadius": 0.7500000596046448,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 210
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "'O"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 23.243635177612305,
+        "y": 22.597980499267578
+      },
+      "transform": {
+        "m00": -1,
+        "m01": 0,
+        "m02": 232.39959716796875,
+        "m10": 0,
+        "m11": 1,
+        "m12": 409.3171691894531
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 211
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "'r"
+      },
+      "type": "FRAME",
+      "name": "Group",
+      "size": {
+        "x": 28.509103775024414,
+        "y": 27.490924835205078
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 206.5636444091797,
+        "m10": 0,
+        "m11": 1,
+        "m12": 505.4363708496094
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 212
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 211
+        },
+        "position": "!"
+      },
+      "type": "FRAME",
+      "name": "Group",
+      "size": {
+        "x": 28.509103775024414,
+        "y": 27.490924835205078
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 213
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 212
+        },
+        "position": "!"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 19.636363983154297,
+        "y": 26.18181800842285
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": -2.174377368646674e-05,
+        "m10": 0,
+        "m11": 1,
+        "m12": 1.3091011047363281
+      },
+      "cornerRadius": 0.800000011920929,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 214
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 212
+        },
+        "position": "\""
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 10.472726821899414,
+        "y": 14.399999618530273
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 18.03635597229004,
+        "m10": 0,
+        "m11": 1,
+        "m12": -5.34057608092553e-06
+      },
+      "cornerRadius": 0.800000011920929,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 215
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "("
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 19.383434295654297,
+        "y": 22.804040908813477
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 133.7426300048828,
+        "m10": 0,
+        "m11": 1,
+        "m12": 409.3656311035156
+      },
+      "cornerRadius": 8.55151653289795,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 216
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "(f"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 25,
+        "y": 25
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 130.37069702148438,
+        "m10": 0,
+        "m11": 1,
+        "m12": 506.2676696777344
+      },
+      "cornerRadius": 0.694444477558136,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 217
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": ")"
+      },
+      "type": "LINE",
+      "name": "Line 1",
+      "size": {
+        "x": 50,
+        "y": 0
+      },
+      "transform": {
+        "m00": 6.123234262925839e-17,
+        "m01": -1,
+        "m02": 106.18182373046875,
+        "m10": 1,
+        "m11": 6.123234262925839e-17,
+        "m12": 396
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 218
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": ")O"
+      },
+      "type": "LINE",
+      "name": "Line 3",
+      "size": {
+        "x": 50,
+        "y": 0
+      },
+      "transform": {
+        "m00": 6.123234262925839e-17,
+        "m01": -1,
+        "m02": 105.6181640625,
+        "m10": 1,
+        "m11": 6.123234262925839e-17,
+        "m12": 494
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 219
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "*"
+      },
+      "type": "LINE",
+      "name": "Line 2",
+      "size": {
+        "x": 50,
+        "y": 0
+      },
+      "transform": {
+        "m00": 6.123234262925839e-17,
+        "m01": -1,
+        "m02": 180.6868896484375,
+        "m10": 1,
+        "m11": 6.123234262925839e-17,
+        "m12": 396
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 220
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "+"
+      },
+      "type": "LINE",
+      "name": "Line 4",
+      "size": {
+        "x": 50,
+        "y": 0
+      },
+      "transform": {
+        "m00": 6.123234262925839e-17,
+        "m01": -1,
+        "m02": 180.12322998046875,
+        "m10": 1,
+        "m11": 6.123234262925839e-17,
+        "m12": 494
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 221
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "3O"
+      },
+      "type": "FRAME",
+      "name": "Frame 2",
+      "size": {
+        "x": 250,
+        "y": 452
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 18,
+        "m10": 0,
+        "m11": 1,
+        "m12": 591
+      },
+      "opacity": 1
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 222
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 221
+        },
+        "position": "*"
+      },
+      "type": "TEXT",
+      "name": "Discover",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 223
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 221
+        },
+        "position": "+"
+      },
+      "type": "TEXT",
+      "name": "Tracks",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 53
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 224
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 221
+        },
+        "position": ","
+      },
+      "type": "TEXT",
+      "name": "Playlists",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 106
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 225
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 221
+        },
+        "position": "-"
+      },
+      "type": "TEXT",
+      "name": "Albums",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 159
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 226
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 221
+        },
+        "position": "."
+      },
+      "type": "TEXT",
+      "name": "Artists",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 212
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 227
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 221
+        },
+        "position": "/"
+      },
+      "type": "TEXT",
+      "name": "Cached",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 265
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 228
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 221
+        },
+        "position": "0"
+      },
+      "type": "TEXT",
+      "name": "Profile",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 318
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 229
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 221
+        },
+        "position": "0O"
+      },
+      "type": "TEXT",
+      "name": "Sync",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 371
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 230
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 221
+        },
+        "position": "1"
+      },
+      "type": "TEXT",
+      "name": "Settings",
+      "size": {
+        "x": 250,
+        "y": 28
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 424
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 24,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 231
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "3P"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 8",
+      "size": {
+        "x": 64,
+        "y": 64
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 253
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 156,
+          "originalImageHeight": 160,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 232
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "3PO"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 9",
+      "size": {
+        "x": 64,
+        "y": 64
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 325
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 156,
+          "originalImageHeight": 160,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 233
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "3Pf"
+      },
+      "type": "ROUNDED_RECTANGLE",
+      "name": "Rectangle 10",
+      "size": {
+        "x": 64,
+        "y": 64
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1548,
+        "m10": 0,
+        "m11": 1,
+        "m12": 397
+      },
+      "cornerRadius": 10,
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "IMAGE",
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "transform": {
+            "m00": 1,
+            "m01": 0,
+            "m02": 0,
+            "m10": 0,
+            "m11": 1,
+            "m12": 0
+          },
+          "image": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "imageThumbnail": {
+            "hash": {
+              "0": 84,
+              "1": 215,
+              "2": 13,
+              "3": 169,
+              "4": 161,
+              "5": 52,
+              "6": 65,
+              "7": 48,
+              "8": 205,
+              "9": 201,
+              "10": 15,
+              "11": 58,
+              "12": 83,
+              "13": 58,
+              "14": 235,
+              "15": 190,
+              "16": 179,
+              "17": 248,
+              "18": 138,
+              "19": 207
+            },
+            "name": "Discord_N7SWexNtgk"
+          },
+          "animationFrame": 0,
+          "imageScaleMode": "FILL",
+          "imageShouldColorManage": true,
+          "rotation": 0,
+          "scale": 0.5,
+          "originalImageWidth": 156,
+          "originalImageHeight": 160,
+          "thumbHash": {},
+          "altText": ""
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 234
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "3Q"
+      },
+      "type": "TEXT",
+      "name": "Title",
+      "size": {
+        "x": 121,
+        "y": 25
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1624,
+        "m10": 0,
+        "m11": 1,
+        "m12": 257
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 35.26411819458008,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 235
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "3QO"
+      },
+      "type": "TEXT",
+      "name": "Title",
+      "size": {
+        "x": 121,
+        "y": 25
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1624,
+        "m10": 0,
+        "m11": 1,
+        "m12": 329
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 35.26411819458008,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 236
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "3Qf"
+      },
+      "type": "TEXT",
+      "name": "Title",
+      "size": {
+        "x": 121,
+        "y": 25
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1624,
+        "m10": 0,
+        "m11": 1,
+        "m12": 401
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 35.26411819458008,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 237
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "3R"
+      },
+      "type": "TEXT",
+      "name": "Artist",
+      "size": {
+        "x": 154,
+        "y": 24
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1625,
+        "m10": 0,
+        "m11": 1,
+        "m12": 289.2113037109375
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 17.63205909729004,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 238
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "3S"
+      },
+      "type": "TEXT",
+      "name": "Artist",
+      "size": {
+        "x": 154,
+        "y": 24
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1625,
+        "m10": 0,
+        "m11": 1,
+        "m12": 361.2113037109375
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 17.63205909729004,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 3,
+        "localID": 239
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "3T"
+      },
+      "type": "TEXT",
+      "name": "Artist",
+      "size": {
+        "x": 154,
+        "y": 24
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 1625,
+        "m10": 0,
+        "m11": 1,
+        "m12": 433.2113037109375
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ],
+      "fontSize": 17.63205909729004,
+      "fontName": {
+        "family": "Segoe UI",
+        "style": "Semibold",
+        "postscript": "SegoeUI-Semibold"
+      },
+      "lineHeight": {
+        "value": 1.192658543586731,
+        "units": "RAW"
+      },
+      "letterSpacing": {
+        "value": -1,
+        "units": "PERCENT"
+      }
+    },
+    {
+      "guid": {
+        "sessionID": 6,
+        "localID": 2
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 3,
+          "localID": 191
+        },
+        "position": "#O"
+      },
+      "type": "FRAME",
+      "name": "Vector 1",
+      "size": {
+        "x": 56,
+        "y": 68
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 27,
+        "m10": 0,
+        "m11": 1,
+        "m12": 19
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": false,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 6,
+        "localID": 3
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 6,
+          "localID": 2
+        },
+        "position": "!"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 56.000003814697266,
+        "y": 67.99998474121094
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 6,
+        "localID": 4
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 6,
+          "localID": 2
+        },
+        "position": "\""
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 9.171591758728027,
+        "y": 9.081357955932617
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 42.115055084228516
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 7,
+        "localID": 5
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 2,
+          "localID": 5
+        },
+        "position": "3U"
+      },
+      "type": "FRAME",
+      "name": "Vector 1",
+      "size": {
+        "x": 56,
+        "y": 68
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 27,
+        "m10": 0,
+        "m11": 1,
+        "m12": 19
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": false,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 7,
+        "localID": 6
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 7,
+          "localID": 5
+        },
+        "position": "!"
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 56.000003814697266,
+        "y": 67.99998474121094
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 0
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    },
+    {
+      "guid": {
+        "sessionID": 7,
+        "localID": 7
+      },
+      "parentIndex": {
+        "guid": {
+          "sessionID": 7,
+          "localID": 5
+        },
+        "position": "\""
+      },
+      "type": "VECTOR",
+      "name": "Vector",
+      "size": {
+        "x": 9.171591758728027,
+        "y": 9.081357955932617
+      },
+      "transform": {
+        "m00": 1,
+        "m01": 0,
+        "m02": 0,
+        "m10": 0,
+        "m11": 1,
+        "m12": 42.115055084228516
+      },
+      "opacity": 1,
+      "fillPaints": [
+        {
+          "type": "SOLID",
+          "color": {
+            "r": 1,
+            "g": 1,
+            "b": 1,
+            "a": 1
+          },
+          "opacity": 1,
+          "visible": true,
+          "blendMode": "NORMAL",
+          "authoredColor": {
+            "space": "DEFAULT",
+            "c0": 1,
+            "c1": 1,
+            "c2": 1,
+            "c3": 1
+          }
+        }
+      ]
+    }
+  ]
+}

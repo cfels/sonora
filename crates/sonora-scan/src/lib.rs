@@ -8,6 +8,7 @@
 pub mod metadata;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use sonora_core::{
@@ -22,6 +23,7 @@ const BATCH_SIZE: usize = 128;
 #[derive(Clone)]
 pub struct Scanner {
     db: Db,
+    scan_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 enum ScanBatch {
@@ -31,7 +33,10 @@ enum ScanBatch {
 
 impl Scanner {
     pub fn new(db: Db) -> Self {
-        Self { db }
+        Self {
+            db,
+            scan_lock: Arc::new(tokio::sync::Mutex::new(())),
+        }
     }
 
     /// Index every supported audio file under `folder`.
@@ -44,6 +49,7 @@ impl Scanner {
         folder: impl AsRef<Path>,
         events: Option<broadcast::Sender<Event>>,
     ) -> Result<ScanReport> {
+        let _guard = self.scan_lock.lock().await;
         let started = Instant::now();
         let folder = canonical_dir(folder.as_ref())?;
         let folder_id = self.db.add_folder(&folder).await?;
@@ -101,8 +107,17 @@ impl Scanner {
             .await
             .map_err(|err| Error::Other(format!("scanner task failed: {err}")))?;
 
-        // Anything in this folder not touched by this run is gone.
-        report.removed = self.db.prune_missing(folder_id, run_id).await?;
+        // A failed read does not mean a file vanished. Pruning an incomplete
+        // walk would also cascade-delete its favourites, lyrics and playlists.
+        if report.errors.is_empty() {
+            report.removed = self.db.prune_missing(folder_id, run_id).await?;
+        } else {
+            let message = "Library cleanup skipped because the scan was incomplete. Existing tracks were kept.";
+            log::warn!("{message}");
+            if let Some(tx) = events.as_ref() {
+                let _ = tx.send(Event::Warn(message.to_string()));
+            }
+        }
         self.db.finish_scan(run_id, folder_id, &report).await?;
         report.elapsed_ms = started.elapsed().as_millis();
 
@@ -339,5 +354,23 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, Error::Io { .. }));
+    }
+    #[tokio::test]
+    async fn an_unreadable_track_does_not_delete_existing_library_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Artist - Track.wav");
+        write_wav(&path, 1);
+        let db = Db::open_in_memory().await.unwrap();
+        let scanner = Scanner::new(db.clone());
+        scanner.scan(dir.path(), None).await.unwrap();
+        let track = db.list_tracks(10, 0).await.unwrap()[0].id;
+        db.set_favourite(track, true).await.unwrap();
+        db.record_play(track).await.unwrap();
+        std::fs::write(&path, b"temporarily unreadable audio").unwrap();
+        let report = scanner.scan(dir.path(), None).await.unwrap();
+        assert!(report.total_errors() > 0);
+        assert_eq!(report.removed, 0);
+        assert!(db.track(track).await.unwrap().unwrap().favourite);
+        assert_eq!(db.history(10, 0).await.unwrap().len(), 1);
     }
 }

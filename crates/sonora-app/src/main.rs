@@ -55,7 +55,14 @@ fn main() -> anyhow::Result<()> {
     match args.as_slice() {
         [] => {
             log::info!("library database: {}", db_path.display());
-            sonora_ui::run(db, runtime.handle().clone())?;
+            sonora_ui::run(
+                db,
+                runtime.handle().clone(),
+                db_path
+                    .parent()
+                    .context("database has no parent directory")?
+                    .to_path_buf(),
+            )?;
         }
         [flag] if flag == "--version" || flag == "-V" => {
             println!("sonora {}", env!("CARGO_PKG_VERSION"));

@@ -288,6 +288,93 @@ fn sanitize(segment: &str) -> String {
     trimmed.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Rolling UTC durations. A month is 30 days; six months is 180 days and a
+/// year is 365 days. All time disables history deletion, not lifetime counters.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryRetention {
+    Hour,
+    Day,
+    Days2,
+    Days3,
+    Days4,
+    Days5,
+    Days6,
+    #[default]
+    Days7,
+    Weeks2,
+    Month,
+    Months6,
+    Year,
+    AllTime,
+}
+
+impl HistoryRetention {
+    pub const ALL: [Self; 13] = [
+        Self::Hour,
+        Self::Day,
+        Self::Days2,
+        Self::Days3,
+        Self::Days4,
+        Self::Days5,
+        Self::Days6,
+        Self::Days7,
+        Self::Weeks2,
+        Self::Month,
+        Self::Months6,
+        Self::Year,
+        Self::AllTime,
+    ];
+
+    pub fn seconds(self) -> Option<i64> {
+        let days = match self {
+            Self::Hour => return Some(3600),
+            Self::Day => 1,
+            Self::Days2 => 2,
+            Self::Days3 => 3,
+            Self::Days4 => 4,
+            Self::Days5 => 5,
+            Self::Days6 => 6,
+            Self::Days7 => 7,
+            Self::Weeks2 => 14,
+            Self::Month => 30,
+            Self::Months6 => 180,
+            Self::Year => 365,
+            Self::AllTime => return None,
+        };
+        Some(days * 86400)
+    }
+
+    pub fn index(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|value| *value == self)
+            .unwrap_or(7)
+    }
+
+    pub fn from_index(index: usize) -> Self {
+        Self::ALL.get(index).copied().unwrap_or_default()
+    }
+}
+
+/// Native player effects. Both can be disabled independently without changing
+/// the cover image shown by the transport.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppearanceSettings {
+    pub blur_panels: bool,
+    pub cover_background: bool,
+}
+
+impl Default for AppearanceSettings {
+    fn default() -> Self {
+        Self {
+            blur_panels: true,
+            cover_background: true,
+        }
+    }
+}
+
 /// Everything the user can change, in one document.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -311,6 +398,11 @@ pub struct Settings {
     pub playback_device: Option<String>,
     /// Has the user completed the first-run flow?
     pub onboarding_completed: bool,
+    pub history_retention: HistoryRetention,
+    pub appearance: AppearanceSettings,
+    /// User mixer volume, before ReplayGain.
+    pub volume: f64,
+    pub muted: bool,
 }
 
 impl Default for Settings {
@@ -326,6 +418,10 @@ impl Default for Settings {
             device_sync_enabled: false,
             playback_device: None,
             onboarding_completed: false,
+            history_retention: HistoryRetention::default(),
+            appearance: AppearanceSettings::default(),
+            volume: 1.0,
+            muted: false,
         }
     }
 }
@@ -334,6 +430,11 @@ impl Settings {
     /// Clamp everything into range. Called before every save, so the database
     /// only ever holds valid values.
     pub fn normalized(mut self) -> Self {
+        self.volume = if self.volume.is_finite() {
+            self.volume.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         self.format = self.format.normalized();
         self.cache_limit_bytes = self
             .cache_limit_bytes
@@ -612,5 +713,44 @@ mod tests {
             .expect("partial documents must load");
         assert!(settings.onboarding_completed);
         assert_eq!(settings.format, FormatPreference::default());
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+
+    #[test]
+    fn older_settings_get_seven_days_and_full_volume() {
+        let settings = Settings::from_json("{}").unwrap();
+        assert_eq!(settings.history_retention, HistoryRetention::Days7);
+        assert_eq!(settings.volume, 1.0);
+        assert!(!settings.muted);
+    }
+
+    #[test]
+    fn retention_options_round_trip_and_use_rolling_durations() {
+        for (index, retention) in HistoryRetention::ALL.into_iter().enumerate() {
+            assert_eq!(HistoryRetention::from_index(index), retention);
+            assert_eq!(retention.index(), index);
+            let settings = Settings {
+                history_retention: retention,
+                ..Settings::default()
+            };
+            assert_eq!(Settings::from_json(&settings.to_json()).unwrap(), settings);
+        }
+        assert_eq!(HistoryRetention::Hour.seconds(), Some(3600));
+        assert_eq!(HistoryRetention::Month.seconds(), Some(30 * 86400));
+        assert_eq!(HistoryRetention::Months6.seconds(), Some(180 * 86400));
+        assert_eq!(HistoryRetention::Year.seconds(), Some(365 * 86400));
+        assert_eq!(HistoryRetention::AllTime.seconds(), None);
+    }
+    #[test]
+    fn appearance_defaults_are_backward_compatible() {
+        let old = Settings::from_json("{}").unwrap();
+        assert_eq!(old.appearance, AppearanceSettings::default());
+        let partial = Settings::from_json(r#"{"appearance":{"blur_panels":false}}"#).unwrap();
+        assert!(!partial.appearance.blur_panels);
+        assert!(partial.appearance.cover_background);
     }
 }

@@ -62,7 +62,7 @@ sonora is under active development. the project is being built in phases, and no
 - Playback history, play and skip counts, ratings and favourites.
 - Most played shelf on Home.
 - ReplayGain support, with track gain taking priority over album gain.
-- Audio output device selection, including switching devices without restarting playback.
+- Audio output selection, saved for the next restart to keep playback stable.
 
 **artwork, metadata & lyrics**
 - Embedded artwork extraction and conversion.
@@ -71,19 +71,22 @@ sonora is under active development. the project is being built in phases, and no
 - Online metadata providers through MusicBrainz and other sources.
 - Cover artwork retrieval with multiple provider fallbacks.
 - Lyrics retrieval through LRCLIB, with cached lyrics available offline.
-- A lyrics pane in the player and artwork in the playback transport.
+- Automatic lyrics loading, manual scrolling and synced-line following.
+- Artwork in the playback transport and queue.
 
 **interface & settings**
-- Slint desktop interface with Home, Tracks, Albums, Library folders, History and Favourites.
+- Slint desktop interface with Discover/Home, Tracks, Playlists, Albums, Artists and Settings.
+- Favourites live under Playlists, History opens from Home, and library folders live in Settings.
 - Global library search.
 - Album and artist navigation.
 - Format preference and bitrate ceiling settings.
-- Cache budget and artwork configuration.
+- Cache budget, confirmed cache clearing and artwork configuration.
+- Configurable history retention (7 days by default).
 - Configurable library folder template.
 - Last.fm API key configuration.
 - Download and cache folder pickers.
 - Device-sync opt-in setting.
-- Live Current / Upcoming / History queue indicators.
+- Queue and Lyrics share one independently scrollable side panel.
 
 ### what's still yet to come
 
@@ -93,7 +96,7 @@ the following are either partially implemented or waiting for their respective d
 - Custom playlists and smart playlists with a rule editor.
 - Last.fm authentication, scrobbling, recommendations, charts and similar artists.
 - Artist and album profiles with pictures.
-- Synced lyrics, local `.lrc` handling and lyric editing.
+- Lyric editing.
 - Discord Rich Presence.
 - MPRIS (Linux) and SMTC (Windows) media controls.
 - External device detection, sync profiles and resumable transfers.
@@ -128,9 +131,18 @@ android has its own NDK build requirements, which are documented in [DEVELOPMENT
 
 **requirements**
 
-- rust 1.80+ ([rustup](https://rustup.rs))
+- rust 1.96+ ([rustup](https://rustup.rs))
 - for linux: a C toolchain, `pkg-config` and the required GStreamer development packages.
 - for windows: a compatible Rust toolchain and the required GStreamer installation.
+
+**nixos**
+
+```sh
+nix-shell
+cargo build --workspace
+```
+
+this exposes the real fontconfig and gstreamer development libraries. see [DEVELOPMENT](docs/DEVELOPMENT.md) for details.
 
 **build & test**
 

@@ -48,9 +48,12 @@ struct Shared {
     gain_resolver: GainResolver,
     /// The ReplayGain being applied to the currently playing track, in dB.
     current_gain_db: f32,
+    audible_track: Option<TrackId>,
+    stream_serial: u64,
     /// The audio sink currently set on the pipeline, if any.
     current_sink: Option<String>,
     current_path: Option<PathBuf>,
+    pending: Option<(TrackId, PathBuf)>,
 }
 
 /// Turns a track id into a ReplayGain adjustment in decibels, if the track
@@ -63,7 +66,11 @@ pub struct Engine {
     state: Arc<AtomicU8>,
     finished: Arc<AtomicBool>,
     /// f64 bits, so the volume can be read without locking.
-    volume: AtomicU64,
+    volume: Arc<AtomicU64>,
+    muted: AtomicBool,
+    shutdown: Arc<AtomicBool>,
+    bus_thread: Option<std::thread::JoinHandle<()>>,
+    error: Arc<Mutex<Option<String>>>,
 }
 
 impl Engine {
@@ -101,8 +108,11 @@ impl Engine {
             resolve,
             gain_resolver: Box::new(|_| None),
             current_gain_db: 0.0,
-            current_sink: None,
+            audible_track: None,
+            stream_serial: 0,
+            current_sink: sink.map(str::to_owned),
             current_path: None,
+            pending: None,
         }));
 
         // Gapless: playbin asks for the next URI just before the current one
@@ -134,17 +144,65 @@ impl Engine {
         let finished_for_bus = finished.clone();
         let state_for_bus = state.clone();
         let weak = pipeline.downgrade();
-        std::thread::Builder::new()
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let thread_shutdown = shutdown.clone();
+        let error = Arc::new(Mutex::new(None));
+        let thread_error = error.clone();
+        let volume = Arc::new(AtomicU64::new(1.0f64.to_bits()));
+        let thread_volume = volume.clone();
+        let bus_shared = shared.clone();
+        let bus_thread = std::thread::Builder::new()
             .name("sonora-playback-bus".to_string())
             .spawn(move || {
-                while let Some(message) = bus.timed_pop(gst::ClockTime::from_mseconds(200)) {
+                while !thread_shutdown.load(Ordering::SeqCst) {
+                    let Some(message) = bus.timed_pop(gst::ClockTime::from_mseconds(200)) else {
+                        continue;
+                    };
                     match message.view() {
+                        gst::MessageView::StreamStart(..) => {
+                            if let Some(pipeline) = weak.upgrade() {
+                                let mut shared = lock(&bus_shared);
+                                let uri = pipeline.property::<Option<String>>("current-uri");
+                                let pending_matches =
+                                    shared.pending.as_ref().is_some_and(|(_, path)| {
+                                        gst::glib::filename_to_uri(path, None::<&str>)
+                                            .ok()
+                                            .is_some_and(|pending_uri| {
+                                                uri.as_deref() == Some(pending_uri.as_str())
+                                            })
+                                    });
+                                if pending_matches {
+                                    if let Some((track, path)) = shared.pending.take() {
+                                        shared.queue.activate_prepared(track);
+                                        shared.current_path = Some(path);
+                                    }
+                                }
+                                shared.audible_track = shared.queue.current();
+                                shared.stream_serial = shared.stream_serial.wrapping_add(1);
+                                let gain = shared
+                                    .queue
+                                    .current()
+                                    .and_then(|track| (shared.gain_resolver)(track));
+                                shared.current_gain_db = valid_gain(gain);
+                                pipeline.set_property(
+                                    "volume",
+                                    effective_volume(
+                                        f64::from_bits(thread_volume.load(Ordering::SeqCst)),
+                                        shared.current_gain_db,
+                                    ),
+                                );
+                            }
+                        }
                         gst::MessageView::Eos(..) => {
                             finished_for_bus.store(true, Ordering::SeqCst);
                             state_for_bus.store(PlaybackState::Stopped.code(), Ordering::SeqCst);
                         }
                         gst::MessageView::Error(error) => {
-                            log::error!("playback error: {} ({:?})", error.error(), error.debug());
+                            let message = format!("Playback failed: {}", error.error());
+                            log::error!("{message} ({:?})", error.debug());
+                            *thread_error
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(message);
                             state_for_bus.store(PlaybackState::Stopped.code(), Ordering::SeqCst);
                         }
                         gst::MessageView::StateChanged(changed) => {
@@ -180,7 +238,11 @@ impl Engine {
             shared,
             state,
             finished,
-            volume: AtomicU64::new(1.0f64.to_bits()),
+            volume,
+            muted: AtomicBool::new(false),
+            shutdown,
+            bus_thread: Some(bus_thread),
+            error,
         })
     }
 
@@ -219,11 +281,18 @@ impl Engine {
                 self.resume()?;
                 Ok(true)
             }
-            PlaybackState::Stopped => Ok(false),
+            PlaybackState::Stopped => match self.current() {
+                Some(track) => {
+                    self.start_track(track)?;
+                    Ok(true)
+                }
+                None => Ok(false),
+            },
         }
     }
 
     pub fn stop(&self) -> Result<()> {
+        lock(&self.shared).pending = None;
         self.pipeline
             .set_state(gst::State::Null)
             .map_err(|err| Error::playback(format!("could not stop: {err}")))?;
@@ -266,20 +335,53 @@ impl Engine {
     }
 
     pub fn seek_ms(&self, position_ms: u64) -> Result<()> {
+        let duration = self
+            .duration_ms()
+            .filter(|duration| *duration > 0)
+            .ok_or_else(|| Error::playback("this track has no known duration"))?;
+        if !self.is_seekable() {
+            return Err(Error::playback("this track does not support seeking"));
+        }
         self.pipeline
             .seek_simple(
                 gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-                gst::ClockTime::from_mseconds(position_ms),
+                gst::ClockTime::from_mseconds(position_ms.min(duration.saturating_sub(1))),
             )
             .map_err(|err| Error::playback(format!("could not seek: {err}")))
     }
 
     pub fn set_volume(&self, volume: f64) {
-        let volume = volume.clamp(0.0, 1.0);
+        let volume = if volume.is_finite() {
+            volume.clamp(0.0, 1.0)
+        } else {
+            return;
+        };
         self.volume.store(volume.to_bits(), Ordering::SeqCst);
         // Re-apply the current track's ReplayGain on top of the new user volume.
         let gain = lock(&self.shared).current_gain_db;
-        self.apply_gain_if_playing(gain);
+        self.pipeline
+            .set_property("volume", effective_volume(volume, gain));
+    }
+
+    pub fn set_muted(&self, muted: bool) {
+        self.muted.store(muted, Ordering::SeqCst);
+        self.pipeline.set_property("mute", muted);
+    }
+
+    pub fn muted(&self) -> bool {
+        self.muted.load(Ordering::SeqCst)
+    }
+
+    pub fn is_seekable(&self) -> bool {
+        let mut query = gst::query::Seeking::new(gst::Format::Time);
+        self.pipeline.query(&mut query) && query.result().0
+    }
+
+    pub fn take_error(&self) -> Option<String> {
+        self.error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
     }
 
     pub fn volume(&self) -> f64 {
@@ -315,6 +417,13 @@ impl Engine {
 
     pub fn current(&self) -> Option<TrackId> {
         lock(&self.shared).queue.current()
+    }
+
+    /// A stream start distinguishes repeated plays of the same track from a
+    /// pause/resume, and avoids counting a prepared URI as an audible play.
+    pub fn active_session(&self) -> (Option<TrackId>, u64) {
+        let shared = lock(&self.shared);
+        (shared.audible_track, shared.stream_serial)
     }
 
     pub fn upcoming(&self) -> Vec<TrackId> {
@@ -377,15 +486,14 @@ impl Engine {
 
     // ----------------------------------------------------------------- device
 
-    /// Set the audio output device for playback.
-    ///
-    /// `Some(name)` validates that GStreamer has a sink element factory with
-    /// that name and switches the pipeline to it. `None` reverts to the system
-    /// default sink when `autoaudiosink` is available; otherwise the current
-    /// sink is left in place (a restart picks up the system default).
-    /// Switching devices may cause a brief silence while the new sink is
-    /// connected; that is a GStreamer behaviour, not a bug.
+    /// Configure a sink before playback starts. Replacing a live audio sink is
+    /// unsafe on some Windows backends; the UI saves changes for the next launch.
     pub fn set_device(&self, name: Option<&str>) -> Result<()> {
+        if self.state() != PlaybackState::Stopped
+            || self.pipeline.current_state() != gst::State::Null
+        {
+            return Err(Error::device("restart Sonora to change the audio output"));
+        }
         let sink_element = match name {
             Some(sink_name) => {
                 // Validate that the sink element factory exists before trying to
@@ -423,6 +531,9 @@ impl Engine {
         };
         // set_property on a GStreamer element returns () and logs failures
         // internally, so the builder validation above is the main guard.
+        if name == Some("fakesink") {
+            sink_element.set_property("sync", true);
+        }
         self.pipeline.set_property("audio-sink", &sink_element);
         lock(&self.shared).current_sink = name.map(String::from);
         Ok(())
@@ -441,6 +552,10 @@ impl Engine {
     /// matches, it is still returned so the picker always has an entry and the
     /// device can be reset to the default.
     pub fn available_sinks() -> Vec<String> {
+        if let Err(err) = gst::init() {
+            log::warn!("could not enumerate audio outputs: {err}");
+            return Vec::new();
+        }
         const CANDIDATES: &[&str] = &[
             "autoaudiosink",
             "pulsesink",
@@ -450,6 +565,7 @@ impl Engine {
             "osssink",
             "jackaudiosink",
             "directsoundsink",
+            "wasapi2sink",
             "wasapisink",
             "coreaudiosink",
         ];
@@ -500,8 +616,12 @@ impl Engine {
             ))
         })?;
 
+        lock(&self.shared).pending = None;
+        // READY permits a new URI while retaining the audio device resources.
+        self.pipeline
+            .set_state(gst::State::Ready)
+            .map_err(|err| Error::playback(format!("could not prepare a track change: {err}")))?;
         self.pipeline.set_property("uri", Some(uri.as_str()));
-        self.set_state(PlaybackState::Playing)?;
 
         // Apply this track's ReplayGain, if it carries one, on top of the
         // user's volume. Gapless handover uses this path too, so the gain is
@@ -514,7 +634,7 @@ impl Engine {
             self.apply_gain(gain);
         }
 
-        Ok(())
+        self.set_state(PlaybackState::Playing)
     }
 
     fn set_state(&self, state: PlaybackState) -> Result<()> {
@@ -536,35 +656,31 @@ impl Engine {
     /// Apply a ReplayGain adjustment to the mixer volume, on top of the user's
     /// volume setting. A gain of `None` or `0.0` restores the user volume.
     fn apply_gain(&self, gain_db: Option<f32>) {
-        let user_volume = f64::from_bits(self.volume.load(Ordering::SeqCst));
-        let effective = match gain_db {
-            Some(db) if db.abs() > f32::EPSILON => {
-                // 10^(db/20) converts decibels to a linear multiplier.
-                let multiplier = (db as f64 / 20.0 * std::f64::consts::LN_10).exp();
-                (user_volume * multiplier).clamp(0.0, 1.0)
-            }
-            _ => user_volume,
-        };
-        lock(&self.shared).current_gain_db = gain_db.unwrap_or(0.0);
-        self.pipeline.set_property("volume", effective);
-    }
-
-    /// Re-apply the stored gain after the user volume changed (slider move).
-    fn apply_gain_if_playing(&self, gain_db: f32) {
-        // Only touch the pipeline volume when there is an active gain to apply.
-        if gain_db.abs() > f32::EPSILON {
-            let user_volume = f64::from_bits(self.volume.load(Ordering::SeqCst));
-            let effective = (user_volume * (gain_db as f64 / 20.0 * std::f64::consts::LN_10).exp())
-                .clamp(0.0, 1.0);
-            self.pipeline.set_property("volume", effective);
-        }
+        let gain = valid_gain(gain_db);
+        lock(&self.shared).current_gain_db = gain;
+        self.pipeline
+            .set_property("volume", effective_volume(self.volume(), gain));
     }
 }
 
 impl Drop for Engine {
     fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
         let _ = self.pipeline.set_state(gst::State::Null);
+        if let Some(thread) = self.bus_thread.take() {
+            if thread.join().is_err() {
+                log::error!("playback bus thread panicked during shutdown");
+            }
+        }
     }
+}
+
+fn valid_gain(gain: Option<f32>) -> f32 {
+    gain.filter(|value| value.is_finite()).unwrap_or(0.0)
+}
+
+fn effective_volume(volume: f64, gain: f32) -> f64 {
+    (volume * (f64::from(gain) / 20.0 * std::f64::consts::LN_10).exp()).clamp(0.0, 1.0)
 }
 
 fn lock(shared: &Arc<Mutex<Shared>>) -> MutexGuard<'_, Shared> {
@@ -581,8 +697,11 @@ fn resolve_track(shared: &mut Shared, track: TrackId) -> Option<PathBuf> {
 
 /// Next URI for the gapless handover.
 fn next_path(shared: &mut Shared) -> Option<PathBuf> {
-    let track = shared.queue.advance()?;
-    resolve_track(shared, track)
+    let mut preview = shared.queue.clone();
+    let track = preview.advance()?;
+    let path = (shared.resolve)(track)?;
+    shared.pending = Some((track, path.clone()));
+    Some(path)
 }
 
 #[cfg(test)]
@@ -790,5 +909,138 @@ mod tests {
         let engine = Engine::with_sink(resolve, Some("fakesink")).expect("engine");
         let err = engine.play_tracks(&[7]).unwrap_err();
         assert!(err.to_string().contains("no file"), "{err}");
+    }
+    #[test]
+    fn bus_survives_an_idle_period_before_playback() {
+        let (_directory, _files, engine) = fixtures(0.3);
+        std::thread::sleep(Duration::from_millis(450));
+        engine.play_tracks(&[1]).unwrap();
+        assert!(
+            wait_until(|| engine.finished(), Duration::from_secs(5)),
+            "bus stopped watching after an idle timeout"
+        );
+    }
+
+    #[test]
+    fn mixer_volume_works_without_gain_and_while_paused() {
+        let (_directory, _files, engine) = fixtures(4.0);
+        engine.play_tracks(&[1]).unwrap();
+        assert!(wait_until(
+            || engine.position_ms().unwrap_or(0) > 50,
+            Duration::from_secs(3)
+        ));
+        engine.set_volume(0.37);
+        assert!((engine.pipeline.property::<f64>("volume") - 0.37).abs() < 1e-6);
+        engine.pause().unwrap();
+        engine.set_volume(0.19);
+        assert!((engine.pipeline.property::<f64>("volume") - 0.19).abs() < 1e-6);
+        engine.set_muted(true);
+        assert!(engine.pipeline.property::<bool>("mute"));
+        assert_eq!(engine.volume(), 0.19);
+        engine.set_muted(false);
+        assert!(!engine.pipeline.property::<bool>("mute"));
+        engine.set_volume(f64::NAN);
+        assert_eq!(engine.volume(), 0.19);
+    }
+
+    #[test]
+    fn gain_tracks_and_manual_skips_keep_user_volume() {
+        let (_directory, _files, engine) = fixtures(4.0);
+        engine.set_gain_resolver(Box::new(|track| (track == 1).then_some(-6.0)));
+        engine.set_volume(0.4);
+        engine.play_tracks(&[1, 2]).unwrap();
+        assert!(wait_until(
+            || engine.position_ms().unwrap_or(0) > 50,
+            Duration::from_secs(3)
+        ));
+        assert!(
+            (engine.pipeline.property::<f64>("volume") - 0.4 * 10f64.powf(-6.0 / 20.0)).abs()
+                < 1e-6
+        );
+        engine.next().unwrap();
+        assert!(wait_until(
+            || engine.position_ms().unwrap_or(0) > 50,
+            Duration::from_secs(3)
+        ));
+        assert!((engine.pipeline.property::<f64>("volume") - 0.4).abs() < 1e-6);
+        assert_eq!(
+            engine.pipeline.property::<Option<String>>("current-uri"),
+            Some(
+                gst::glib::filename_to_uri(
+                    engine.shared.lock().unwrap().current_path.clone().unwrap(),
+                    None::<&str>
+                )
+                .unwrap()
+                .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn rapid_manual_switches_keep_the_sink_and_finish_on_the_last_selection() {
+        let (_directory, _files, engine) = fixtures(4.0);
+        engine.play_tracks(&[1]).unwrap();
+        let sink = engine.pipeline.property::<gst::Element>("audio-sink");
+        for id in [2, 1, 2, 1, 2] {
+            engine.play_tracks(&[id]).unwrap();
+        }
+        assert!(wait_until(
+            || engine.position_ms().unwrap_or(0) > 50,
+            Duration::from_secs(3)
+        ));
+        assert_eq!(engine.current(), Some(2));
+        assert_eq!(engine.pipeline.property::<gst::Element>("audio-sink"), sink);
+        assert!(engine.take_error().is_none());
+    }
+
+    #[test]
+    fn seek_while_paused_and_refuse_live_sink_replacement() {
+        let (_directory, _files, engine) = fixtures(4.0);
+        assert!(engine.seek_ms(1000).is_err());
+        engine.play_tracks(&[1]).unwrap();
+        assert!(wait_until(|| engine.is_seekable(), Duration::from_secs(3)));
+        let original = engine.pipeline.property::<gst::Element>("audio-sink");
+        assert!(engine.set_device(Some("autoaudiosink")).is_err());
+        assert_eq!(
+            engine.pipeline.property::<gst::Element>("audio-sink"),
+            original
+        );
+        engine.pause().unwrap();
+        engine.seek_ms(2300).unwrap();
+        assert!(wait_until(
+            || engine.position_ms().unwrap_or(0).abs_diff(2300) < 100,
+            Duration::from_secs(3)
+        ));
+    }
+
+    #[test]
+    fn gapless_preparation_does_not_change_the_audible_track_or_gain() {
+        let (_directory, _files, engine) = fixtures(2.0);
+        engine.set_gain_resolver(Box::new(|track| Some(if track == 1 { -3.0 } else { -9.0 })));
+        engine.play_tracks(&[1, 2]).unwrap();
+        assert!(wait_until(
+            || engine.position_ms().unwrap_or(0) > 200,
+            Duration::from_secs(3)
+        ));
+        assert_eq!(engine.current(), Some(1));
+        assert_eq!(engine.track_gain(), Some(-3.0));
+        assert_eq!(engine.upcoming(), vec![2]);
+        assert!(wait_until(
+            || engine.current() == Some(2),
+            Duration::from_secs(5)
+        ));
+        assert_eq!(engine.track_gain(), Some(-9.0));
+    }
+    #[test]
+    fn repeating_one_track_starts_a_new_audible_session() {
+        let (_directory, _files, engine) = fixtures(0.25);
+        engine.set_repeat(RepeatMode::One);
+        engine.play_tracks(&[1]).unwrap();
+        assert!(wait_until(
+            || engine.active_session().1 >= 2,
+            Duration::from_secs(5)
+        ));
+        assert_eq!(engine.active_session().0, Some(1));
+        assert_eq!(engine.current(), Some(1));
     }
 }

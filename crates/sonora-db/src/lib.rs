@@ -26,6 +26,14 @@ pub enum UpsertOutcome {
     Unchanged(TrackId),
 }
 
+#[derive(Debug, Clone)]
+pub struct ArtistSummary {
+    pub id: ArtistId,
+    pub name: String,
+    pub album_count: i64,
+    pub track_count: i64,
+}
+
 #[derive(Clone)]
 pub struct Db {
     pool: SqlitePool,
@@ -137,7 +145,9 @@ impl Db {
             .run(&pool)
             .await
             .map_err(|err| Error::Database(format!("migration failed: {err}")))?;
-        Ok(Self { pool })
+        let db = Self { pool };
+        db.prune_history().await?;
+        Ok(db)
     }
 
     pub fn pool(&self) -> &SqlitePool {
@@ -271,6 +281,30 @@ impl Db {
     /// Album-artist credits are what make a release "by" someone, so an artist
     /// page built on this lists their own records and not the compilations they
     /// only appear on.
+    pub async fn artists(&self) -> Result<Vec<ArtistSummary>> {
+        let rows = sqlx::query(
+            "SELECT ar.id, ar.name, COUNT(DISTINCT t.id) AS track_count,
+                                      COUNT(DISTINCT al.id) AS album_count
+                               FROM artists ar
+                               JOIN tracks t ON t.artist_id = ar.id OR t.album_id IN
+                                   (SELECT id FROM albums WHERE album_artist_id = ar.id)
+                               LEFT JOIN albums al ON al.id = t.album_id
+                               GROUP BY ar.id ORDER BY ar.name COLLATE NOCASE, ar.id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .db()?;
+        Ok(rows
+            .into_iter()
+            .map(|row| ArtistSummary {
+                id: row.get("id"),
+                name: row.get("name"),
+                album_count: row.get("album_count"),
+                track_count: row.get("track_count"),
+            })
+            .collect())
+    }
+
     pub async fn artist_albums(&self, artist: ArtistId) -> Result<Vec<AlbumSummary>> {
         let sql = format!(
             "SELECT {ALBUM_COLUMNS}
@@ -793,6 +827,7 @@ impl Db {
     /// Recent plays, newest first. Each row carries the track as it looks now,
     /// so editing a tag updates every historical entry too.
     pub async fn history(&self, limit: i64, offset: i64) -> Result<Vec<HistoryEntry>> {
+        self.prune_history().await?;
         let sql = format!(
             "SELECT h.id AS history_id, h.played_at AS history_played_at,
                     h.skipped AS history_skipped, {TRACK_COLUMNS}
@@ -1205,8 +1240,75 @@ impl Db {
     /// Persist settings, clamping them into range first so the database only
     /// ever holds valid values.
     pub async fn save_settings(&self, settings: &Settings) -> Result<()> {
-        let document = settings.clone().normalized().to_json();
-        self.set_setting(SETTINGS_KEY, &document).await
+        let settings = settings.clone().normalized();
+        let mut tx = self.pool.begin().await.db()?;
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(SETTINGS_KEY)
+        .bind(settings.to_json())
+        .execute(&mut *tx)
+        .await
+        .db()?;
+        if let Some(seconds) = settings.history_retention.seconds() {
+            sqlx::query("DELETE FROM play_history WHERE played_at < ?1")
+                .bind(now().saturating_sub(seconds))
+                .execute(&mut *tx)
+                .await
+                .db()?;
+        }
+        tx.commit().await.db()
+    }
+
+    /// Delete expired listening events. Lifetime counts, ratings and favourites
+    /// are kept separately and are deliberately unaffected.
+    pub async fn prune_history(&self) -> Result<u64> {
+        let retention = self.load_settings().await?.history_retention;
+        self.prune_history_at(retention, now()).await
+    }
+
+    async fn prune_history_at(
+        &self,
+        retention: sonora_core::HistoryRetention,
+        at: i64,
+    ) -> Result<u64> {
+        let Some(seconds) = retention.seconds() else {
+            return Ok(0);
+        };
+        let deleted = sqlx::query("DELETE FROM play_history WHERE played_at < ?1")
+            .bind(at.saturating_sub(seconds))
+            .execute(&self.pool)
+            .await
+            .db()?;
+        Ok(deleted.rows_affected())
+    }
+
+    pub async fn save_appearance(&self, appearance: sonora_core::AppearanceSettings) -> Result<()> {
+        sqlx::query("INSERT INTO settings (key, value) VALUES (?1, json_object('appearance',
+                         json_object('blur_panels', json(?2), 'cover_background', json(?3))))
+                     ON CONFLICT(key) DO UPDATE SET value = json_set(
+                         CASE WHEN json_valid(settings.value) THEN settings.value ELSE '{}' END,
+                         '$.appearance', json_object('blur_panels', json(?2), 'cover_background', json(?3)))")
+            .bind(SETTINGS_KEY)
+            .bind(if appearance.blur_panels { "true" } else { "false" })
+            .bind(if appearance.cover_background { "true" } else { "false" })
+            .execute(&self.pool).await.db()?;
+        Ok(())
+    }
+
+    pub async fn save_volume(&self, volume: f64, muted: bool) -> Result<()> {
+        // Update just these keys so a delayed volume save cannot overwrite the
+        // settings screen or the playback-device picker.
+        sqlx::query("INSERT INTO settings (key, value) VALUES (?1, json_object('volume', ?2, 'muted', json(?3)))
+                     ON CONFLICT(key) DO UPDATE SET value = json_set(
+                         CASE WHEN json_valid(settings.value) THEN settings.value ELSE '{}' END,
+                         '$.volume', ?2, '$.muted', json(?3))")
+            .bind(SETTINGS_KEY)
+            .bind(if volume.is_finite() { volume.clamp(0.0, 1.0) } else { 1.0 })
+            .bind(if muted { "true" } else { "false" })
+            .execute(&self.pool).await.db()?;
+        Ok(())
     }
 
     /// Read the saved playback queue.
@@ -2444,5 +2546,140 @@ mod tests {
             .unwrap();
         assert_eq!(activity, 0);
         assert_eq!(history, 0);
+    }
+    #[tokio::test]
+    async fn retention_deletes_only_expired_events_and_keeps_activity() {
+        use sonora_core::HistoryRetention;
+        let db = Db::open_in_memory().await.unwrap();
+        let (track, _) = seed_two_tracks(&db).await;
+        db.record_play(track).await.unwrap();
+        db.set_favourite(track, true).await.unwrap();
+        db.set_rating(track, 4).await.unwrap();
+        let at = now();
+        sqlx::query("UPDATE play_history SET played_at = ?1")
+            .bind(at - 3601)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        for timestamp in [at - 3600, at - 3599, at + 100] {
+            sqlx::query("INSERT INTO play_history (track_id, played_at) VALUES (?1, ?2)")
+                .bind(track)
+                .bind(timestamp)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            db.prune_history_at(HistoryRetention::AllTime, at)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.prune_history_at(HistoryRetention::Hour, at)
+                .await
+                .unwrap(),
+            1
+        );
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM play_history")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(count, 3);
+        let view = db.track(track).await.unwrap().unwrap();
+        assert_eq!(view.play_count, 1);
+        assert!(view.favourite);
+        assert_eq!(view.rating, 4);
+    }
+
+    #[tokio::test]
+    async fn saving_retention_prunes_real_rows_and_persists_the_choice() {
+        use sonora_core::HistoryRetention;
+        let db = Db::open_in_memory().await.unwrap();
+        let (track, _) = seed_two_tracks(&db).await;
+        db.record_play(track).await.unwrap();
+        sqlx::query("UPDATE play_history SET played_at = ?1")
+            .bind(now() - 3 * 86400)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        db.save_settings(&Settings {
+            history_retention: HistoryRetention::AllTime,
+            ..Settings::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(db.history(10, 0).await.unwrap().len(), 1);
+        db.save_settings(&Settings {
+            history_retention: HistoryRetention::Day,
+            ..Settings::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            db.load_settings().await.unwrap().history_retention,
+            HistoryRetention::Day
+        );
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM play_history")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(db.track(track).await.unwrap().unwrap().play_count, 1);
+    }
+
+    #[tokio::test]
+    async fn volume_save_preserves_other_settings_and_recovers_invalid_json() {
+        let db = Db::open_in_memory().await.unwrap();
+        let settings = Settings {
+            cache_limit_bytes: 8 * 1024 * 1024 * 1024,
+            ..Settings::default()
+        };
+        db.save_settings(&settings).await.unwrap();
+        db.save_volume(0.27, true).await.unwrap();
+        let saved = db.load_settings().await.unwrap();
+        assert_eq!(saved.cache_limit_bytes, settings.cache_limit_bytes);
+        assert_eq!(saved.volume, 0.27);
+        assert!(saved.muted);
+        db.set_setting(SETTINGS_KEY, "invalid").await.unwrap();
+        db.save_volume(0.42, false).await.unwrap();
+        assert_eq!(db.load_settings().await.unwrap().volume, 0.42);
+    }
+    #[tokio::test]
+    async fn artist_directory_lists_real_performers_and_album_artists() {
+        let db = Db::open_in_memory().await.unwrap();
+        seed_two_tracks(&db).await;
+        let artists = db.artists().await.unwrap();
+        assert!(!artists.is_empty());
+        for artist in artists {
+            assert!(artist.track_count > 0);
+            assert_eq!(
+                db.artist_tracks(artist.id).await.unwrap().len() as i64,
+                artist.track_count
+            );
+        }
+    }
+    #[tokio::test]
+    async fn appearance_options_persist_independently_and_preserve_other_settings() {
+        let db = Db::open_in_memory().await.unwrap();
+        let settings = Settings {
+            volume: 0.27,
+            history_retention: sonora_core::HistoryRetention::Hour,
+            ..Settings::default()
+        };
+        db.save_settings(&settings).await.unwrap();
+        for (blur_panels, cover_background) in
+            [(false, true), (true, false), (false, false), (true, true)]
+        {
+            let appearance = sonora_core::AppearanceSettings {
+                blur_panels,
+                cover_background,
+            };
+            db.save_appearance(appearance).await.unwrap();
+            let saved = db.load_settings().await.unwrap();
+            assert_eq!(saved.appearance, appearance);
+            assert_eq!(saved.volume, 0.27);
+            assert_eq!(saved.history_retention, sonora_core::HistoryRetention::Hour);
+        }
     }
 }

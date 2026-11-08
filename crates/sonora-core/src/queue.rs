@@ -251,6 +251,9 @@ impl Queue {
         }
 
         if self.upcoming.is_empty() && self.repeat == RepeatMode::All {
+            if self.history.is_empty() {
+                return self.current();
+            }
             self.recycle_history();
         }
 
@@ -260,6 +263,27 @@ impl Queue {
             self.history.push(played);
         }
         Some(next.track)
+    }
+
+    /// Commit the track playbin already prepared when its audible stream starts.
+    /// Queue edits made while the previous track drained must survive. Once a
+    /// stream is prepared it may still start even if it was just removed.
+    pub fn activate_prepared(&mut self, track: TrackId) {
+        let mut preview = self.clone();
+        if preview.advance() == Some(track) {
+            self.advance();
+            return;
+        }
+        let entry = match self.upcoming.iter().position(|entry| entry.track == track) {
+            Some(index) => self.upcoming.remove(index),
+            None => Entry {
+                track,
+                rank: self.head_rank() - 1,
+            },
+        };
+        if let Some(played) = self.current.replace(entry) {
+            self.history.push(played);
+        }
     }
 
     /// Go back to the previously played track, putting the current one back at
@@ -685,5 +709,24 @@ mod tests {
         assert_eq!(queue.current(), Some(1));
         assert!(queue.upcoming_tracks().is_empty());
         assert!(queue.advance().is_none());
+    }
+    #[test]
+    fn prepared_handover_preserves_late_queue_edits() {
+        let mut queue = Queue::from_tracks_with_seed([1, 2, 3], 1);
+        queue.play_next(4);
+        queue.add_to_queue(5);
+        queue.activate_prepared(2);
+        assert_eq!(queue.current(), Some(2));
+        assert_eq!(queue.history_tracks(), vec![1]);
+        assert_eq!(queue.upcoming_tracks(), vec![4, 3, 5]);
+    }
+
+    #[test]
+    fn repeat_all_replays_a_single_track() {
+        let mut queue = Queue::from_tracks([1]);
+        queue.set_repeat(RepeatMode::All);
+        assert_eq!(queue.advance(), Some(1));
+        assert_eq!(queue.current(), Some(1));
+        assert!(queue.history_tracks().is_empty());
     }
 }

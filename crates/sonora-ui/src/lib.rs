@@ -11,16 +11,21 @@
 
 slint::include_modules!();
 
+mod row_artwork;
+mod transport;
+use transport::{PlaybackHandle, PlaybackWorker};
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel, Weak};
 use sonora_core::{
-    format_duration, AlbumId, ArtistId, ArtworkFormat, Event, FolderTemplate, FormatPreference,
-    FormatTier, PlaylistId, PlaylistRules, Settings, TrackId, TrackView, SMART_LIMIT_DEFAULT,
+    format_duration, AlbumId, AppearanceSettings, ArtistId, ArtworkFormat, Event, FolderTemplate,
+    FormatPreference, FormatTier, HistoryRetention, PlaylistId, PlaylistRules, Settings, TrackId,
+    TrackView, SMART_LIMIT_DEFAULT,
 };
 use sonora_db::{AlbumSummary, Db, HistoryEntry, PlaylistSummary};
 use sonora_playback::{Engine, PlaybackState, Resolver};
@@ -32,9 +37,13 @@ const RECENT_LIMIT: usize = 8;
 const MOST_PLAYED_LIMIT: i64 = 8;
 const HISTORY_LIMIT: i64 = 200;
 const PAGE_LIMIT: i64 = 500;
-const POLL_INTERVAL: Duration = Duration::from_millis(250);
-/// Transport artwork is tiny, so 96px is plenty even on a high-DPI screen.
-const ARTWORK_PX: u32 = 96;
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// The design uses a 250px cover; 512px also covers double-density displays.
+const ARTWORK_PX: u32 = 512;
+const QUEUE_ARTWORK_PX: u32 = 128;
+const BACKDROP_WIDTH: u32 = 480;
+const BACKDROP_HEIGHT: u32 = 270;
+type CoverPixels = (Vec<u8>, u32, u32);
 
 pub struct AppContext {
     pub db: Db,
@@ -66,6 +75,7 @@ struct TrackLookup {
     /// The section on screen, so a refresh reloads the page being looked at
     /// rather than every page that happens to still have state.
     section: String,
+    track_limit: i64,
     /// The album page, when one is open. Kept apart from `visible` so opening an
     /// album does not change how the other pages queue.
     album: Option<AlbumPage>,
@@ -187,7 +197,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Start the application. Blocks until the window is closed.
-pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
+pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
     let (events, _) = broadcast::channel(256);
     let ctx = Arc::new(AppContext {
         scanner: Scanner::new(db.clone()),
@@ -198,7 +208,7 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
     let ui = AppWindow::new()?;
     let weak = ui.as_weak();
     ui.set_folder_hint(folder_hint().into());
-    let busy = Arc::new(AtomicU64::new(0));
+    let search_generation = Arc::new(AtomicU64::new(0));
     let lookup = Arc::new(Mutex::new(TrackLookup::default()));
 
     let engine = build_engine(&lookup);
@@ -206,10 +216,34 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
     if let Some(engine) = engine.as_ref() {
         let saved = handle.block_on(ctx.db.load_queue());
         if let Ok(saved) = saved {
+            let ids: Vec<TrackId> = saved
+                .current()
+                .into_iter()
+                .chain(saved.upcoming_tracks())
+                .chain(saved.history_tracks())
+                .collect();
+            let tracks = handle.block_on(async {
+                let mut tracks = Vec::new();
+                for id in ids {
+                    if let Some(track) = ctx.db.track(id).await? {
+                        tracks.push(track);
+                    }
+                }
+                Ok::<_, sonora_core::Error>(tracks)
+            })?;
+            remember_tracks(&lookup, &tracks);
+            let has_current = saved.current().is_some();
             engine.restore_from_snapshot(saved.snapshot());
+            if has_current {
+                ui.set_section("player".into());
+                lock(&lookup).section = "player".to_string();
+            }
         }
     }
     ui.set_playback_available(engine.is_some());
+    if engine.is_none() {
+        ui.set_status("Playback unavailable. Check the GStreamer installation.".into());
+    }
     if let Some(engine) = engine.as_ref() {
         refresh_queue_tabs(&weak, engine);
     }
@@ -217,20 +251,20 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         ui.set_volume(engine.volume() as f32);
     }
 
-    // Apply the saved playback device, if one was configured. The engine
-    // validates the sink name when set_device is called, so a stale choice
-    // just falls back to the system default instead of breaking playback.
-    {
-        let engine = engine.clone();
-        let db = ctx.db.clone();
-        handle.spawn(async move {
-            let settings = db.load_settings().await.unwrap_or_default();
-            if let (Some(engine), Some(name)) = (engine, settings.playback_device) {
-                if let Err(err) = engine.set_device(Some(&name)) {
-                    log::warn!("playback device {name} is no longer available: {err}");
-                }
+    let settings = handle.block_on(ctx.db.load_settings())?;
+    if let Some(engine) = engine.as_ref() {
+        engine.set_volume(settings.volume);
+        engine.set_muted(settings.muted);
+        ui.set_volume(settings.volume as f32);
+        ui.set_muted(settings.muted);
+        if let Some(name) = settings.playback_device.as_deref() {
+            if let Err(err) = engine.set_device(Some(name)) {
+                log::warn!("saved audio output unavailable: {err}");
+                ui.set_status(
+                    format!("Saved audio output unavailable; using system default: {err}").into(),
+                );
             }
-        });
+        }
     }
 
     // Wire the playback-device picker. Each callback takes its own clones so the
@@ -255,12 +289,10 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
     }
 
     {
-        let engine = engine.clone();
         let db = ctx.db.clone();
         let handle = handle.clone();
         let weak = weak.clone();
         ui.on_device_picker_select(move |device| {
-            let engine = engine.clone();
             let db = db.clone();
             let handle = handle.clone();
             let weak = weak.clone();
@@ -280,17 +312,10 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                     });
                     return;
                 }
-                // Switch the live pipeline too, so the choice takes effect now
-                // rather than only after the next restart.
-                if let Some(engine) = engine.as_ref() {
-                    if let Err(err) = engine.set_device(Some(&selected)) {
-                        log::warn!("could not switch to playback device {selected}: {err}");
-                    }
-                }
                 let _ = weak.upgrade_in_event_loop(move |ui| {
                     ui.set_settings_device(selected.into());
                     ui.set_device_picker_open(false);
-                    ui.set_status("Playback device updated.".into());
+                    ui.set_status("Audio output saved. Restart Sonora to apply it.".into());
                 });
             });
         });
@@ -310,9 +335,22 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         });
     }
 
+    let appearance_writer = wire_appearance(&ui, weak.clone(), ctx.db.clone(), handle.clone());
+
+    let mut playback_worker = engine
+        .as_ref()
+        .map(|engine| PlaybackWorker::new(weak.clone(), engine.clone(), lookup.clone()))
+        .transpose()?;
+    let playback = playback_worker
+        .as_ref()
+        .map(|worker| worker.playback.clone());
+    row_artwork::wire(&ui, weak.clone(), lookup.clone(), handle.clone());
+    ui.global::<RowArtwork>()
+        .set_playback_available(engine.is_some());
+
     // Timed lyrics live beside the pane: the loader fills them, the playback
     // poll reads them to move the highlight line by line.
-    let timed_lyrics: TimedLyrics = Arc::new(Mutex::new(Vec::new()));
+    let timed_lyrics = LyricsLoader::default();
 
     if let Some(engine) = engine.clone() {
         wire_lyrics(
@@ -333,7 +371,7 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         ctx.db.clone(),
         handle.clone(),
         lookup.clone(),
-        engine.clone(),
+        playback.clone(),
     );
 
     {
@@ -372,6 +410,7 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         let ctx = ctx.clone();
         let handle = handle.clone();
         let lookup = lookup.clone();
+        let generation = search_generation.clone();
         ui.on_search_changed(move |text| {
             run_search(
                 weak.clone(),
@@ -379,7 +418,35 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                 handle.clone(),
                 lookup.clone(),
                 text.to_string(),
-                busy.clone(),
+                generation.clone(),
+            );
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let ctx = ctx.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        let generation = search_generation.clone();
+        ui.on_load_more_tracks(move || {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            {
+                let mut lookup = lock(&lookup);
+                lookup.track_limit = lookup
+                    .track_limit
+                    .max(PAGE_LIMIT)
+                    .saturating_add(PAGE_LIMIT);
+            }
+            run_search(
+                weak.clone(),
+                ctx.clone(),
+                handle.clone(),
+                lookup.clone(),
+                window.get_search_text().to_string(),
+                generation.clone(),
             );
         });
     }
@@ -407,6 +474,31 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                 lookup.clone(),
                 path,
             );
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let ctx = ctx.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_remove_folder(move |id| {
+            let weak = weak.clone();
+            let ctx = ctx.clone();
+            let handle_for_refresh = handle.clone();
+            let lookup = lookup.clone();
+            handle.spawn(async move {
+                match ctx.db.remove_folder(i64::from(id)).await {
+                    Ok(()) => {
+                        set_status(
+                            &weak,
+                            "Folder removed from the library. Files on disk were kept.",
+                        );
+                        refresh_all(weak, ctx, handle_for_refresh, lookup);
+                    }
+                    Err(err) => set_status(&weak, format!("Could not remove folder: {err}")),
+                }
+            });
         });
     }
 
@@ -493,6 +585,7 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         let weak = weak.clone();
         let db = ctx.db.clone();
         let handle = handle.clone();
+        let engine = engine.clone();
         ui.on_save_settings(
             move |tier,
                   bitrate,
@@ -504,11 +597,32 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                   download_folder,
                   cache_folder,
                   device_sync,
-                  device| {
+                  device,
+                  retention| {
                 let weak = weak.clone();
                 let db = db.clone();
+                let mixer = engine
+                    .as_ref()
+                    .map(|engine| (engine.volume(), engine.muted()));
+                let appearance = weak.upgrade().map(|ui| AppearanceSettings {
+                    blur_panels: ui.get_settings_blur_panels(),
+                    cover_background: ui.get_settings_cover_background(),
+                });
                 handle.spawn(async move {
-                    let mut settings = db.load_settings().await.unwrap_or_default();
+                    let mut settings = match db.load_settings().await {
+                        Ok(settings) => settings,
+                        Err(err) => {
+                            set_status(&weak, format!("Could not read settings: {err}"));
+                            return;
+                        }
+                    };
+                    if let Some(appearance) = appearance {
+                        settings.appearance = appearance;
+                    }
+                    if let Some((volume, muted)) = mixer {
+                        settings.volume = volume;
+                        settings.muted = muted;
+                    }
                     settings.format = FormatPreference::new(
                         if tier.as_str() == "lossy" {
                             FormatTier::Lossy
@@ -529,14 +643,30 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                     settings.download_folder = optional_path(download_folder.as_str());
                     settings.cache_folder = optional_path(cache_folder.as_str());
                     settings.device_sync_enabled = device_sync;
+                    settings.history_retention =
+                        HistoryRetention::from_index(retention.max(0) as usize);
                     settings.playback_device = optional_string(device.as_str());
                     let settings = settings.normalized();
 
                     match db.save_settings(&settings).await {
                         Ok(()) => {
                             let saved = settings.clone();
+                            let history = match db.history(HISTORY_LIMIT, 0).await {
+                                Ok(history) => history,
+                                Err(err) => {
+                                    set_status(
+                                        &weak,
+                                        format!(
+                                            "Settings saved, but history refresh failed: {err}"
+                                        ),
+                                    );
+                                    return;
+                                }
+                            };
                             let _ = weak.upgrade_in_event_loop(move |ui| {
                                 apply_settings(&ui, &saved);
+                                ui.set_history_tracks(model(history_rows(&history)));
+                                ui.invoke_cache_action(false);
                                 ui.set_status("Settings saved.".into());
                             });
                         }
@@ -548,6 +678,65 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
                 });
             },
         );
+    }
+
+    {
+        let weak = weak.clone();
+        let db = ctx.db.clone();
+        let handle = handle.clone();
+        let default_root = data_dir.join("cache");
+        let engine = engine.clone();
+        ui.on_cache_action(move |clear| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let default_root = default_root.clone();
+            let engine = engine.clone();
+            handle.spawn(async move {
+                let settings = match db.load_settings().await {
+                    Ok(settings) => settings,
+                    Err(err) => { set_status(&weak, format!("Could not read cache settings: {err}")); return; }
+                };
+                let root = settings.cache_folder.unwrap_or(default_root);
+                let cache = sonora_cache::TrackCache::at(root.clone());
+                let protected: Vec<TrackId> = engine.as_ref().map(|engine| {
+                    engine.current().into_iter().chain(engine.upcoming()).collect()
+                }).unwrap_or_default();
+                let mut originals = Vec::new();
+                if clear {
+                    let entries = match tokio::task::spawn_blocking(move || cache.entries()).await {
+                        Ok(Ok(entries)) => entries,
+                        Ok(Err(err)) => { set_status(&weak, format!("Could not inspect cache: {err}")); return; }
+                        Err(err) => { set_status(&weak, format!("Cache task failed: {err}")); return; }
+                    };
+                    for entry in entries {
+                        match db.track(entry.track).await {
+                            Ok(Some(track)) => originals.push(track.path),
+                            Ok(None) => {},
+                            Err(err) => { set_status(&weak, format!("Could not protect library files: {err}")); return; }
+                        }
+                    }
+                }
+                let cache = sonora_cache::TrackCache::at(root);
+                let result = tokio::task::spawn_blocking(move || {
+                    let report = if clear { Some(cache.clear(&protected, &originals)?) } else { None };
+                    Ok::<_, sonora_core::Error>((cache.stats()?, report))
+                }).await;
+                match result {
+                    Ok(Ok((stats, report))) => {
+                        let label = format!("{:.2} MiB · {} cached files", stats.bytes as f64 / 1048576.0, stats.tracks);
+                        let _ = weak.upgrade_in_event_loop(move |ui| {
+                            ui.set_cache_size(label.into());
+                            if let Some(report) = report {
+                                ui.set_status(format!("Cleared {} cache files; kept {} protected or unowned files. {}",
+                                    report.removed, report.kept, report.errors.join("; ")).into());
+                            }
+                        });
+                    }
+                    Ok(Err(err)) => set_status(&weak, format!("Cache operation failed: {err}")),
+                    Err(err) => set_status(&weak, format!("Cache task failed: {err}")),
+                }
+            });
+        });
     }
 
     // Native folder pickers for the download and cache locations. Android has
@@ -722,34 +911,74 @@ pub fn run(db: Db, handle: Handle) -> anyhow::Result<()> {
         });
     }
 
-    let _timers = engine.clone().map(|engine| {
-        let playback = attach_playback(
+    let _timers = playback.clone().map(|playback| {
+        let playback_timer = attach_playback(
             &ui,
             weak.clone(),
-            engine.clone(),
+            playback.clone(),
             lookup.clone(),
             ctx.db.clone(),
             handle.clone(),
             timed_lyrics.clone(),
         );
-        let artwork = wire_artwork(weak.clone(), ctx.db.clone(), handle.clone(), engine);
-        (playback, artwork)
+        let artwork = wire_artwork(
+            weak.clone(),
+            ctx.db.clone(),
+            handle.clone(),
+            playback.engine.clone(),
+        );
+        (playback_timer, artwork)
     });
 
     listen_for_events(weak.clone(), ctx.events.subscribe(), handle.clone());
     refresh_all(weak.clone(), ctx.clone(), handle.clone(), lookup);
 
     ui.run()?;
+    if let Some(worker) = playback_worker.as_mut() {
+        worker.shutdown()?;
+    }
+    ui.on_appearance_changed(|_, _| {});
+    handle.block_on(appearance_writer)?;
+    handle.block_on(ctx.db.save_appearance(AppearanceSettings {
+        blur_panels: ui.get_settings_blur_panels(),
+        cover_background: ui.get_settings_cover_background(),
+    }))?;
 
     // Save the queue as it is right now so playback resumes on the next
     // launch. A shutdown in the middle of a track preserves the playing
     // track at the front of the restored queue.
     if let Some(engine) = engine.clone() {
         let snapshot = handle.block_on(async { engine.snapshot() });
-        let _ = handle.block_on(ctx.db.save_queue_snapshot(&snapshot));
+        handle.block_on(ctx.db.save_queue_snapshot(&snapshot))?;
+        handle.block_on(ctx.db.save_volume(engine.volume(), engine.muted()))?;
     }
 
     Ok(())
+}
+
+fn wire_appearance(
+    ui: &AppWindow,
+    weak: Weak<AppWindow>,
+    db: Db,
+    handle: Handle,
+) -> tokio::task::JoinHandle<()> {
+    let (sender, mut changes) = tokio::sync::watch::channel(None::<AppearanceSettings>);
+    ui.on_appearance_changed(move |blur_panels, cover_background| {
+        sender.send_replace(Some(AppearanceSettings {
+            blur_panels,
+            cover_background,
+        }));
+    });
+    handle.spawn(async move {
+        while changes.changed().await.is_ok() {
+            let appearance = *changes.borrow_and_update();
+            if let Some(appearance) = appearance {
+                if let Err(err) = db.save_appearance(appearance).await {
+                    set_status(&weak, format!("Could not save appearance: {err}"));
+                }
+            }
+        }
+    })
 }
 
 fn optional_string(value: &str) -> Option<String> {
@@ -791,37 +1020,41 @@ fn build_engine(lookup: &Arc<Mutex<TrackLookup>>) -> Option<Arc<Engine>> {
 fn attach_playback(
     ui: &AppWindow,
     weak: Weak<AppWindow>,
-    engine: Arc<Engine>,
+    playback: PlaybackHandle,
     lookup: Arc<Mutex<TrackLookup>>,
     db: Db,
     handle: Handle,
-    timed: TimedLyrics,
+    timed: LyricsLoader,
 ) -> Timer {
+    let engine = playback.engine.clone();
     {
-        let engine = engine.clone();
         let lookup = lookup.clone();
         let weak = weak.clone();
+        let playback = playback.clone();
         ui.on_track_activated(move |id| {
             let tracks = {
                 let lookup = lock(&lookup);
-                queue_from(&lookup.visible, id as TrackId)
+                queue_from(&lookup.visible, id as TrackId).or_else(|| {
+                    lookup
+                        .paths
+                        .contains_key(&(id as TrackId))
+                        .then_some(vec![id as TrackId])
+                })
             };
 
             let Some(tracks) = tracks else {
                 return;
             };
-            if let Err(err) = engine.play_tracks(&tracks) {
-                log::warn!("could not start playback: {err}");
-                return;
+            if let Err(err) = playback.play_tracks(&tracks) {
+                set_status(&weak, format!("Could not start playback: {err}"));
             }
-            refresh_playback(&weak, &engine, &lookup);
         });
     }
 
     {
-        let engine = engine.clone();
         let lookup = lookup.clone();
         let weak = weak.clone();
+        let playback = playback.clone();
         ui.on_album_track_activated(move |id| {
             let tracks = {
                 let lookup = lock(&lookup);
@@ -832,18 +1065,16 @@ fn attach_playback(
             let Some(tracks) = tracks else {
                 return;
             };
-            if let Err(err) = engine.play_tracks(&tracks) {
-                log::warn!("could not start the album: {err}");
-                return;
+            if let Err(err) = playback.play_tracks(&tracks) {
+                set_status(&weak, format!("Could not start the album: {err}"));
             }
-            refresh_playback(&weak, &engine, &lookup);
         });
     }
 
     {
-        let engine = engine.clone();
         let lookup = lookup.clone();
         let weak = weak.clone();
+        let playback = playback.clone();
         ui.on_play_album(move || {
             let tracks = lock(&lookup)
                 .album
@@ -853,11 +1084,9 @@ fn attach_playback(
             if tracks.is_empty() {
                 return;
             }
-            if let Err(err) = engine.play_tracks(&tracks) {
-                log::warn!("could not start the album: {err}");
-                return;
+            if let Err(err) = playback.play_tracks(&tracks) {
+                set_status(&weak, format!("Could not start the album: {err}"));
             }
-            refresh_playback(&weak, &engine, &lookup);
         });
     }
 
@@ -926,9 +1155,9 @@ fn attach_playback(
     }
 
     {
-        let engine = engine.clone();
         let lookup = lookup.clone();
         let weak = weak.clone();
+        let playback = playback.clone();
         ui.on_artist_track_activated(move |id| {
             let tracks = {
                 let lookup = lock(&lookup);
@@ -939,18 +1168,16 @@ fn attach_playback(
             let Some(tracks) = tracks else {
                 return;
             };
-            if let Err(err) = engine.play_tracks(&tracks) {
-                log::warn!("could not start the artist: {err}");
-                return;
+            if let Err(err) = playback.play_tracks(&tracks) {
+                set_status(&weak, format!("Could not start the artist: {err}"));
             }
-            refresh_playback(&weak, &engine, &lookup);
         });
     }
 
     {
-        let engine = engine.clone();
         let lookup = lookup.clone();
         let weak = weak.clone();
+        let playback = playback.clone();
         ui.on_play_artist(move || {
             let tracks = lock(&lookup)
                 .artist
@@ -960,11 +1187,9 @@ fn attach_playback(
             if tracks.is_empty() {
                 return;
             }
-            if let Err(err) = engine.play_tracks(&tracks) {
-                log::warn!("could not start the artist: {err}");
-                return;
+            if let Err(err) = playback.play_tracks(&tracks) {
+                set_status(&weak, format!("Could not start the artist: {err}"));
             }
-            refresh_playback(&weak, &engine, &lookup);
         });
     }
 
@@ -1008,6 +1233,8 @@ fn attach_playback(
                 // Back can return to the release the artist was opened from.
                 let back = if lock(&lookup).album.is_some() {
                     "album"
+                } else if lock(&lookup).section == "artists" {
+                    "artists"
                 } else {
                     "albums"
                 };
@@ -1053,34 +1280,31 @@ fn attach_playback(
     }
 
     {
-        let engine = engine.clone();
         let weak = weak.clone();
+        let playback = playback.clone();
         ui.on_toggle_playback(move || {
-            if let Err(err) = engine.toggle() {
-                log::warn!("could not toggle playback: {err}");
+            if let Err(err) = playback.toggle() {
+                set_status(&weak, format!("Could not start playback: {err}"));
             }
-            set_playing(&weak, engine.state() == PlaybackState::Playing);
         });
     }
 
     {
-        let engine = engine.clone();
-        let lookup = lookup.clone();
         let weak = weak.clone();
+        let playback = playback.clone();
         ui.on_previous_track(move || {
-            if let Err(err) = engine.previous() {
-                log::warn!("could not go back: {err}");
+            if let Err(err) = playback.previous() {
+                set_status(&weak, format!("Could not go back: {err}"));
             }
-            refresh_playback(&weak, &engine, &lookup);
         });
     }
 
     {
         let engine = engine.clone();
-        let lookup = lookup.clone();
         let weak = weak.clone();
         let db = db.clone();
         let handle = handle.clone();
+        let playback = playback.clone();
         ui.on_next_track(move || {
             // `next` is only called from the transport, so pressing it while a
             // track is live is a skip. Natural gapless advances never come
@@ -1095,18 +1319,18 @@ fn attach_playback(
                     });
                 }
             }
-            if let Err(err) = engine.next() {
-                log::warn!("could not skip: {err}");
+            if let Err(err) = playback.next() {
+                set_status(&weak, format!("Could not skip: {err}"));
             }
-            refresh_playback(&weak, &engine, &lookup);
         });
     }
 
     {
         let engine = engine.clone();
+        let weak = weak.clone();
         ui.on_seek_requested(move |position| {
             if let Err(err) = engine.seek_ms(position.max(0) as u64) {
-                log::warn!("could not seek: {err}");
+                set_status(&weak, format!("Could not seek: {err}"));
             }
         });
     }
@@ -1140,16 +1364,37 @@ fn attach_playback(
         });
     }
 
+    {
+        let engine = engine.clone();
+        ui.on_mute_toggled(move || engine.set_muted(!engine.muted()));
+    }
+    {
+        let engine = engine.clone();
+        ui.on_shuffle_toggled(move || engine.set_shuffle(!engine.shuffle()));
+    }
+    {
+        let engine = engine.clone();
+        ui.on_repeat_toggled(move || {
+            engine.set_repeat(match engine.repeat() {
+                sonora_core::RepeatMode::Off => sonora_core::RepeatMode::All,
+                sonora_core::RepeatMode::All => sonora_core::RepeatMode::One,
+                sonora_core::RepeatMode::One => sonora_core::RepeatMode::Off,
+            })
+        });
+    }
     let timer = Timer::default();
     let timer_weak = weak;
     let timer_engine = engine;
     let timer_db = db;
     let timer_handle = handle;
-    let timer_timed = timed;
+    let timer_timed = timed.clone();
     let mut last_track = None;
+    let mut last_volume = (timer_engine.volume(), timer_engine.muted());
+    let mut volume_changed_at = None;
+    let mut cleanup_at = Instant::now();
     // Which track this listening session has already been counted, so pausing
     // and resuming does not inflate the play count.
-    let mut recorded: Option<TrackId> = None;
+    let mut recorded: Option<(TrackId, u64)> = None;
     timer.start(TimerMode::Repeated, POLL_INTERVAL, move || {
         let Some(ui) = timer_weak.upgrade() else {
             return;
@@ -1158,15 +1403,28 @@ fn attach_playback(
         // Lyrics belong to the track that was playing when they were fetched, so
         // a new track clears the pane instead of showing the previous song's.
         let current = timer_engine.current();
-        if current != last_track {
+        let pending = ui.get_pending_track();
+        if current != last_track
+            && (pending == 0 || current.map_or(0, |id| saturating_i32(id.max(0) as u64)) == pending)
+        {
             last_track = current;
-            recorded = None;
+            ui.global::<RowArtwork>()
+                .set_current_track(current.map_or(0, |track| saturating_i32(track.max(0) as u64)));
+            refresh_playback(&timer_weak, &timer_engine, &lookup);
             if ui.get_lyrics_open() {
-                *lock(&timer_timed) = Vec::new();
-                ui.set_lyric_lines(lyric_model(&[]));
-                ui.set_lyric_active(-1);
-                ui.set_lyrics_text("".into());
-                ui.set_lyrics_status("New track. Press Fetch lyrics.".into());
+                if let Some(track) = current {
+                    load_lyrics(
+                        &timer_weak,
+                        &timer_db,
+                        &timer_handle,
+                        track,
+                        timer_timed.clone(),
+                    );
+                } else {
+                    show_lyrics(&ui, &timer_timed.timed, "", None);
+                    ui.set_lyrics_status("Nothing playing.".into());
+                    ui.set_lyrics_track(0);
+                }
             }
         }
 
@@ -1174,13 +1432,31 @@ fn attach_playback(
         // queue has a current track before it is started, so state matters.
         let state = timer_engine.state();
         if state == PlaybackState::Playing {
-            if let Some(track) = current {
-                if recorded != Some(track) {
-                    recorded = Some(track);
+            let (audible, serial) = timer_engine.active_session();
+            if let Some(track) = audible {
+                if recorded != Some((track, serial)) {
+                    recorded = Some((track, serial));
                     let db = timer_db.clone();
+                    let weak = timer_weak.clone();
                     timer_handle.spawn(async move {
                         if let Err(err) = db.record_play(track).await {
-                            log::warn!("could not record a play: {err}");
+                            set_status(&weak, format!("Could not record play: {err}"));
+                            return;
+                        }
+                        let result = tokio::try_join!(
+                            db.history(HISTORY_LIMIT, 0),
+                            db.most_played(MOST_PLAYED_LIMIT)
+                        );
+                        match result {
+                            Ok((history, most_played)) => {
+                                let _ = weak.upgrade_in_event_loop(move |ui| {
+                                    ui.set_history_tracks(model(history_rows(&history)));
+                                    ui.set_most_played_tracks(model(track_rows(&most_played)));
+                                });
+                            }
+                            Err(err) => {
+                                set_status(&weak, format!("Could not refresh play activity: {err}"))
+                            }
                         }
                     });
                 }
@@ -1188,9 +1464,57 @@ fn attach_playback(
         }
 
         ui.set_playing(state == PlaybackState::Playing);
+        ui.set_seekable(timer_engine.is_seekable());
+        ui.set_volume(timer_engine.volume() as f32);
+        ui.set_muted(timer_engine.muted());
+        ui.set_shuffle(timer_engine.shuffle());
+        ui.set_repeat(match timer_engine.repeat() {
+            sonora_core::RepeatMode::Off => 0,
+            sonora_core::RepeatMode::All => 1,
+            sonora_core::RepeatMode::One => 2,
+        });
+        if let Some(error) = timer_engine.take_error() {
+            ui.set_status(error.into());
+        }
+        let volume = (timer_engine.volume(), timer_engine.muted());
+        if volume != last_volume {
+            last_volume = volume;
+            volume_changed_at = Some(Instant::now());
+        }
+        if volume_changed_at.is_some_and(|at| at.elapsed() >= Duration::from_millis(600)) {
+            volume_changed_at = None;
+            let db = timer_db.clone();
+            let weak = timer_weak.clone();
+            timer_handle.spawn(async move {
+                if let Err(err) = db.save_volume(volume.0, volume.1).await {
+                    set_status(&weak, format!("Could not save volume: {err}"));
+                }
+            });
+        }
+        if cleanup_at.elapsed() >= Duration::from_secs(60) {
+            cleanup_at = Instant::now();
+            let db = timer_db.clone();
+            let weak = timer_weak.clone();
+            timer_handle.spawn(async move {
+                match db.prune_history().await {
+                    Ok(removed) if removed > 0 => match db.history(HISTORY_LIMIT, 0).await {
+                        Ok(entries) => {
+                            let _ = weak.upgrade_in_event_loop(move |ui| {
+                                ui.set_history_tracks(model(history_rows(&entries)))
+                            });
+                        }
+                        Err(err) => set_status(&weak, format!("Could not refresh history: {err}")),
+                    },
+                    Ok(_) => {}
+                    Err(err) => set_status(&weak, format!("History cleanup failed: {err}")),
+                }
+            });
+        }
         let position = timer_engine.position_ms().unwrap_or(0);
         let duration = timer_engine.duration_ms().unwrap_or(0);
-        ui.set_position_ms(saturating_i32(position));
+        if !ui.get_seeking() {
+            ui.set_position_ms(saturating_i32(position));
+        }
         ui.set_duration_ms(saturating_i32(duration));
         ui.set_position_label(format_duration(position as i64).into());
         ui.set_duration_label(format_duration(duration as i64).into());
@@ -1198,7 +1522,7 @@ fn attach_playback(
         // Synced lyrics follow the transport: the line whose timestamp has been
         // passed is the one shown as current, and -1 before the first line.
         let active = {
-            let lines = lock(&timer_timed);
+            let lines = lock(&timer_timed.timed);
             current_lyric_index(&lines, position)
         };
         ui.set_lyric_active(active);
@@ -1266,7 +1590,7 @@ fn wire_playlists(
     db: Db,
     handle: Handle,
     lookup: Arc<Mutex<TrackLookup>>,
-    engine: Option<Arc<Engine>>,
+    playback: Option<PlaybackHandle>,
 ) {
     {
         let weak = weak.clone();
@@ -1517,9 +1841,9 @@ fn wire_playlists(
         });
     }
 
-    if let Some(engine) = engine {
+    if let Some(playback) = playback {
         {
-            let engine = engine.clone();
+            let playback = playback.clone();
             let lookup = lookup.clone();
             let weak = weak.clone();
             ui.on_playlist_play(move || {
@@ -1531,16 +1855,14 @@ fn wire_playlists(
                 if tracks.is_empty() {
                     return;
                 }
-                if let Err(err) = engine.play_tracks(&tracks) {
-                    log::warn!("could not start the playlist: {err}");
-                    return;
+                if let Err(err) = playback.play_tracks(&tracks) {
+                    set_status(&weak, format!("Could not start the playlist: {err}"));
                 }
-                refresh_playback(&weak, &engine, &lookup);
             });
         }
 
         {
-            let engine = engine.clone();
+            let playback = playback.clone();
             let lookup = lookup.clone();
             let weak = weak.clone();
             ui.on_playlist_track_activated(move |id| {
@@ -1553,11 +1875,9 @@ fn wire_playlists(
                 let Some(tracks) = tracks else {
                     return;
                 };
-                if let Err(err) = engine.play_tracks(&tracks) {
-                    log::warn!("could not start the playlist: {err}");
-                    return;
+                if let Err(err) = playback.play_tracks(&tracks) {
+                    set_status(&weak, format!("Could not start the playlist: {err}"));
                 }
-                refresh_playback(&weak, &engine, &lookup);
             });
         }
     }
@@ -1675,8 +1995,10 @@ fn refresh_all(
             .recently_added(RECENT_LIMIT as i64)
             .await
             .unwrap_or_default();
-        let tracks = ctx.db.list_tracks(PAGE_LIMIT, 0).await.unwrap_or_default();
+        let track_limit = lock(&lookup).track_limit.max(PAGE_LIMIT);
+        let tracks = ctx.db.list_tracks(track_limit, 0).await.unwrap_or_default();
         let albums = ctx.db.albums().await.unwrap_or_default();
+        let artists = ctx.db.artists().await.unwrap_or_default();
         let most_played = ctx
             .db
             .most_played(MOST_PLAYED_LIMIT)
@@ -1684,13 +2006,16 @@ fn refresh_all(
             .unwrap_or_default();
         let favourites = ctx.db.favourites(PAGE_LIMIT).await.unwrap_or_default();
         let history = ctx.db.history(HISTORY_LIMIT, 0).await.unwrap_or_default();
-        let folders: Vec<slint::SharedString> = ctx
+        let folders: Vec<FolderRow> = ctx
             .db
             .folders()
             .await
             .unwrap_or_default()
             .into_iter()
-            .map(|(_, path)| path.to_string_lossy().to_string().into())
+            .map(|(id, path)| FolderRow {
+                id: saturating_i32(id.max(0) as u64),
+                path: path.to_string_lossy().to_string().into(),
+            })
             .collect();
 
         let playlists = ctx.db.playlists().await.unwrap_or_default();
@@ -1775,8 +2100,19 @@ fn refresh_all(
             _ => None,
         };
 
-        remember(&lookup, &tracks);
-
+        remember_tracks(&lookup, &tracks);
+        remember_tracks(&lookup, &recent);
+        remember_tracks(&lookup, &most_played);
+        remember_tracks(&lookup, &favourites);
+        remember_tracks(
+            &lookup,
+            &history
+                .iter()
+                .map(|entry| entry.track.clone())
+                .collect::<Vec<_>>(),
+        );
+        let track_order = tracks.iter().map(|track| track.id).collect::<Vec<_>>();
+        let lookup_for_ui = lookup.clone();
         let recent_rows = track_rows(&recent);
         let all_rows = track_rows(&tracks);
         let most_played_rows = track_rows(&most_played);
@@ -1791,11 +2127,29 @@ fn refresh_all(
             ui.set_artist_count(stats.artists as i32);
             ui.set_library_duration(duration.into());
             ui.set_recent_tracks(model(recent_rows));
-            ui.set_all_tracks(model(all_rows));
+            if ui.get_search_text().is_empty() {
+                lock(&lookup_for_ui).visible = track_order;
+                ui.set_all_tracks(model(all_rows));
+                ui.set_tracks_limit(saturating_i32(track_limit as u64));
+            }
             ui.set_most_played_tracks(model(most_played_rows));
             ui.set_favourite_tracks(model(favourite_rows));
             ui.set_history_tracks(model(history_rows));
             ui.set_albums(model(album_rows));
+            ui.set_artists(model(
+                artists
+                    .into_iter()
+                    .map(|artist| ArtistRow {
+                        id: saturating_i32(artist.id.max(0) as u64),
+                        name: artist.name.into(),
+                        meta: format!(
+                            "{} albums · {} tracks",
+                            artist.album_count, artist.track_count
+                        )
+                        .into(),
+                    })
+                    .collect(),
+            ));
             ui.set_folders(model(folders));
             ui.set_playlists(model(playlist_rows(&playlists)));
             if let Some(view) = playlist_page {
@@ -1824,16 +2178,21 @@ fn run_search(
 ) {
     let current = generation.fetch_add(1, Ordering::SeqCst) + 1;
     handle.spawn(async move {
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        if generation.load(Ordering::SeqCst) != current {
+            return;
+        }
+        let limit = lock(&lookup).track_limit.max(PAGE_LIMIT);
         let rows = if query.trim().is_empty() {
-            ctx.db.list_tracks(PAGE_LIMIT, 0).await
+            ctx.db.list_tracks(limit, 0).await
         } else {
-            ctx.db.search(&query, PAGE_LIMIT).await
+            ctx.db.search(&query, limit).await
         };
 
         let rows = match rows {
             Ok(rows) => rows,
             Err(err) => {
-                log::error!("search failed: {err}");
+                set_status(&weak, format!("Search failed: {err}"));
                 return;
             }
         };
@@ -1843,11 +2202,17 @@ fn run_search(
             return;
         }
 
-        remember(&lookup, &rows);
-
-        let rows = track_rows(&rows);
+        let display = track_rows(&rows);
         let _ = weak.upgrade_in_event_loop(move |ui| {
-            ui.set_all_tracks(model(rows));
+            if generation.load(Ordering::SeqCst) != current
+                || ui.get_search_text().as_str() != query
+            {
+                return;
+            }
+            remember(&lookup, &rows);
+            ui.invoke_section_changed("tracks".into());
+            ui.set_all_tracks(model(display));
+            ui.set_tracks_limit(saturating_i32(limit as u64));
         });
     });
 }
@@ -1897,59 +2262,53 @@ fn listen_for_events(
     });
 }
 
-/// Wire the lyrics pane: read what is cached, fetch from LRCLIB on demand.
+/// The same loader serves panel opens and playback changes, with one in-flight
+/// request per track and a short negative/error cache for repeated opens.
+#[derive(Clone, Default)]
+struct LyricsLoader {
+    timed: TimedLyrics,
+    requests: Arc<Mutex<HashMap<TrackId, LyricsRequest>>>,
+}
+
+enum LyricsRequest {
+    Loading,
+    Complete { result: LyricsResult, at: Instant },
+}
+
+#[derive(Clone)]
+struct LyricsResult {
+    plain: String,
+    synced: Option<String>,
+    status: String,
+    retry_after: Duration,
+}
+
 fn wire_lyrics(
     ui: &AppWindow,
     weak: Weak<AppWindow>,
     db: Db,
     handle: Handle,
     engine: Arc<Engine>,
-    timed: TimedLyrics,
+    loader: LyricsLoader,
 ) {
-    {
-        let weak = weak.clone();
-        let db = db.clone();
-        let handle = handle.clone();
-        let engine = engine.clone();
-        let timed = timed.clone();
-        ui.on_lyrics_toggle(move || {
-            let Some(window) = weak.clone().upgrade() else {
-                return;
-            };
-            let open = !window.get_lyrics_open();
-            window.set_lyrics_open(open);
-            if !open {
-                return;
-            }
-
-            window.set_queue_open(false);
-            match engine.current() {
-                Some(track) => load_lyrics(&weak, &db, &handle, track, timed.clone()),
-                None => {
-                    window.set_lyrics_text("".into());
-                    window.set_lyrics_status("Nothing playing.".into());
-                }
-            }
-        });
-    }
-
-    {
-        let weak = weak.clone();
-        let db = db.clone();
-        let handle = handle.clone();
-        let timed = timed.clone();
-        ui.on_lyrics_fetch(move || {
-            let Some(window) = weak.clone().upgrade() else {
-                return;
-            };
-            let Some(track) = engine.current() else {
+    ui.on_lyrics_toggle(move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let open = !window.get_lyrics_open();
+        window.set_lyrics_open(open);
+        if !open {
+            return;
+        }
+        window.set_queue_open(false);
+        match engine.current() {
+            Some(track) => load_lyrics(&weak, &db, &handle, track, loader.clone()),
+            None => {
+                show_lyrics(&window, &loader.timed, "", None);
                 window.set_lyrics_status("Nothing playing.".into());
-                return;
-            };
-            window.set_lyrics_status("Fetching from LRCLIB…".into());
-            request_lyrics(&weak, db.clone(), handle.clone(), track, timed.clone());
-        });
-    }
+            }
+        }
+    });
 }
 
 /// Cover art beside the transport controls.
@@ -1959,20 +2318,43 @@ fn wire_lyrics(
 fn wire_artwork(weak: Weak<AppWindow>, db: Db, handle: Handle, engine: Arc<Engine>) -> Timer {
     let timer = Timer::default();
     let timer_weak = weak.clone();
-    let mut shown: Option<TrackId> = None;
-    timer.start(TimerMode::Repeated, Duration::from_millis(500), move || {
+    let mut shown: Option<(Option<TrackId>, Vec<TrackId>, AppearanceSettings)> = None;
+    timer.start(TimerMode::Repeated, Duration::from_millis(100), move || {
         let Some(window) = timer_weak.upgrade() else {
             return;
         };
 
         let current = engine.current();
-        if current == shown {
+        if window.get_pending_track() != 0
+            && current.map_or(0, |id| saturating_i32(id.max(0) as u64))
+                != window.get_pending_track()
+        {
             return;
         }
-        shown = current;
+        let upcoming: Vec<TrackId> = engine.upcoming().into_iter().take(64).collect();
+        let appearance = AppearanceSettings {
+            blur_panels: window.get_settings_blur_panels(),
+            cover_background: window.get_settings_cover_background(),
+        };
+        let selection = (current, upcoming.clone(), appearance);
+        if shown.as_ref() == Some(&selection) {
+            return;
+        }
+        shown = Some(selection);
+        window.set_artwork_generation(window.get_artwork_generation().wrapping_add(1));
+        let generation = window.get_artwork_generation();
+        window.set_artwork_track(current.map_or(0, |track| saturating_i32(track.max(0) as u64)));
 
         match current {
-            Some(track) => request_artwork(&weak, db.clone(), handle.clone(), track),
+            Some(track) => request_artwork(
+                &weak,
+                db.clone(),
+                handle.clone(),
+                track,
+                upcoming,
+                generation,
+                appearance,
+            ),
             None => window.set_artwork(slint::Image::default()),
         }
     });
@@ -1980,7 +2362,15 @@ fn wire_artwork(weak: Weak<AppWindow>, db: Db, handle: Handle, engine: Arc<Engin
 }
 
 /// Decode the track's embedded cover off the UI thread and hand it over.
-fn request_artwork(weak: &Weak<AppWindow>, db: Db, handle: Handle, track: TrackId) {
+fn request_artwork(
+    weak: &Weak<AppWindow>,
+    db: Db,
+    handle: Handle,
+    track: TrackId,
+    upcoming: Vec<TrackId>,
+    generation: i32,
+    appearance: AppearanceSettings,
+) {
     let weak = weak.clone();
     handle.spawn(async move {
         let Some(view) = db.track(track).await.ok().flatten() else {
@@ -1989,204 +2379,301 @@ fn request_artwork(weak: &Weak<AppWindow>, db: Db, handle: Handle, track: TrackI
         let path = view.path.clone();
         // `slint::Image` is not `Send`, so the decode returns plain pixels and the
         // image is built on the UI thread.
-        let pixels = tokio::task::spawn_blocking(move || cover_pixels(&path))
-            .await
-            .ok()
-            .flatten();
+        let pixels = tokio::task::spawn_blocking(move || {
+            let cover = cover_pixels(&path, ARTWORK_PX);
+            let (backdrop, panel_backdrop) = cover_backgrounds(cover.as_ref(), appearance);
+            (cover, backdrop, panel_backdrop)
+        })
+        .await;
+        let artwork_weak = weak.clone();
+        let _ = artwork_weak.upgrade_in_event_loop(move |ui| {
+            if ui.get_artwork_track() != saturating_i32(track.max(0) as u64)
+                || ui.get_artwork_generation() != generation
+            {
+                return;
+            }
+            match pixels {
+                Ok((cover, backdrop, panel_backdrop)) => {
+                    ui.set_art_transition(false);
+                    ui.set_previous_artwork(ui.get_artwork());
+                    ui.set_previous_backdrop(ui.get_backdrop());
+                    ui.set_previous_panel_backdrop(ui.get_panel_backdrop());
+                    ui.set_artwork(pixel_image(cover));
+                    if appearance.cover_background {
+                        ui.set_backdrop(backdrop.map_or_else(slint::Image::default, |bytes| {
+                            slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
+                                &bytes,
+                                BACKDROP_WIDTH,
+                                BACKDROP_HEIGHT,
+                            ))
+                        }));
+                    }
+                    if appearance.cover_background && appearance.blur_panels {
+                        ui.set_panel_backdrop(panel_backdrop.map_or_else(
+                            slint::Image::default,
+                            |bytes| {
+                                slint::Image::from_rgba8(
+                                    slint::SharedPixelBuffer::clone_from_slice(
+                                        &bytes,
+                                        BACKDROP_WIDTH,
+                                        BACKDROP_HEIGHT,
+                                    ),
+                                )
+                            },
+                        ));
+                    }
+                    let weak = ui.as_weak();
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let Some(ui) = weak.upgrade() {
+                            if ui.get_artwork_generation() == generation {
+                                ui.set_art_transition(true);
+                            }
+                        }
+                    });
+                }
+                Err(err) => {
+                    ui.set_status(format!("Artwork task failed: {err}").into());
+                }
+            }
+        });
+        // Queue thumbnails must not delay the new track's cover or backdrop.
+        let mut queued_paths = Vec::new();
+        for id in upcoming {
+            match db.track(id).await {
+                Ok(view) => queued_paths.push(view.map(|view| view.path)),
+                Err(err) => {
+                    log::warn!("could not read artwork track: {err}");
+                    queued_paths.push(None);
+                }
+            }
+        }
+        let queued = tokio::task::spawn_blocking(move || {
+            queued_paths
+                .iter()
+                .map(|path| {
+                    path.as_deref()
+                        .and_then(|path| cover_pixels(path, QUEUE_ARTWORK_PX))
+                })
+                .collect::<Vec<_>>()
+        })
+        .await;
         let _ = weak.upgrade_in_event_loop(move |ui| {
-            let image = pixels.map_or_else(slint::Image::default, |(bytes, width, height)| {
-                slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
-                    &bytes, width, height,
-                ))
-            });
-            ui.set_artwork(image);
+            if ui.get_artwork_generation() != generation {
+                return;
+            }
+            match queued {
+                Ok(queued) => {
+                    ui.set_queue_artworks(model(queued.into_iter().map(pixel_image).collect()))
+                }
+                Err(err) => log::warn!("queue artwork task failed: {err}"),
+            }
         });
     });
 }
 
+fn cover_backgrounds(
+    cover: Option<&CoverPixels>,
+    appearance: AppearanceSettings,
+) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+    if !appearance.cover_background {
+        return (None, None);
+    }
+    let Some((bytes, width, height)) = cover else {
+        return (None, None);
+    };
+    let Some(cover) = image::RgbaImage::from_raw(*width, *height, bytes.clone()) else {
+        return (None, None);
+    };
+    let mut canvas = image::DynamicImage::ImageRgba8(cover)
+        .resize_to_fill(
+            BACKDROP_WIDTH,
+            BACKDROP_HEIGHT,
+            image::imageops::FilterType::Triangle,
+        )
+        .to_rgba8();
+    for pixel in canvas.pixels_mut() {
+        let alpha = u32::from(pixel[3]);
+        for channel in &mut pixel.0[..3] {
+            *channel = ((u32::from(*channel) * alpha + 20 * (255 - alpha) + 127) / 255) as u8;
+        }
+        pixel[3] = 255;
+    }
+    // The Figma blur radii are rasterized at quarter resolution. Only the cover
+    // is blurred; text and controls remain native, sharp Slint elements.
+    let background = image::imageops::fast_blur(&canvas, 43.4375).into_raw();
+    let panels = appearance
+        .blur_panels
+        .then(|| image::imageops::fast_blur(&canvas, 17.65).into_raw());
+    (Some(background), panels)
+}
+
+fn pixel_image(pixels: Option<CoverPixels>) -> slint::Image {
+    pixels.map_or_else(slint::Image::default, |(bytes, width, height)| {
+        slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
+            &bytes, width, height,
+        ))
+    })
+}
+
 /// Downscaled RGBA pixels of the file's embedded cover. A missing cover is
 /// normal, so this returns `None` instead of an error.
-fn cover_pixels(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
+fn cover_pixels(path: &Path, max_dimension: u32) -> Option<CoverPixels> {
     let raw = sonora_artwork::extract_embedded(path).ok().flatten()?;
     let decoded = image::load_from_memory(&raw).ok()?;
-    let thumb = decoded.thumbnail(ARTWORK_PX, ARTWORK_PX).to_rgba8();
+    let thumb = decoded.thumbnail(max_dimension, max_dimension).to_rgba8();
     Some((thumb.as_raw().clone(), thumb.width(), thumb.height()))
 }
 
-/// Show whatever lyrics the database already has for `track`. When nothing is
-/// cached yet, a local `.lrc` beside the file is picked up immediately.
 fn load_lyrics(
     weak: &Weak<AppWindow>,
     db: &Db,
     handle: &Handle,
     track: TrackId,
-    timed: TimedLyrics,
+    loader: LyricsLoader,
 ) {
+    if let Some(ui) = weak.upgrade() {
+        ui.set_lyrics_track(saturating_i32(track.max(0) as u64));
+        show_lyrics(&ui, &loader.timed, "", None);
+        ui.set_lyrics_status("Loading lyrics…".into());
+    }
+    {
+        let mut requests = lock(&loader.requests);
+        if let Some(request) = requests.get(&track) {
+            match request {
+                LyricsRequest::Loading => return,
+                LyricsRequest::Complete { result, at } if at.elapsed() < result.retry_after => {
+                    display_lyrics(weak, track, &loader.timed, result.clone());
+                    return;
+                }
+                _ => {}
+            }
+        }
+        if requests.len() >= 128 {
+            let oldest = requests
+                .iter()
+                .filter_map(|(id, request)| match request {
+                    LyricsRequest::Complete { at, .. } => Some((*id, *at)),
+                    LyricsRequest::Loading => None,
+                })
+                .min_by_key(|(_, at)| *at)
+                .map(|(id, _)| id);
+            if let Some(id) = oldest {
+                requests.remove(&id);
+            }
+        }
+        requests.insert(track, LyricsRequest::Loading);
+    }
     let weak = weak.clone();
     let db = db.clone();
     handle.spawn(async move {
-        match db.lyrics_for(track).await {
-            Ok(Some(stored)) => {
-                let text = lyrics_text(stored.plain.as_deref(), stored.synced.as_deref());
-                let status = format!("Cached ({})", stored.source);
-                let synced = stored.synced.clone();
-                let timed = timed.clone();
-                let _ = weak.upgrade_in_event_loop(move |ui| {
-                    show_lyrics(&ui, &timed, &text, synced.as_deref());
-                    ui.set_lyrics_status(status.into());
-                });
-            }
-            Ok(None) => {
-                // No cached lyrics: a local file still beats a remote fetch prompt.
-                if let Some(view) = db.track(track).await.ok().flatten() {
-                    if let Some((plain, synced)) = local_lyrics(&view.path) {
-                        if let Err(err) = db
-                            .save_lyrics(track, plain.as_deref(), synced.as_deref(), "local")
-                            .await
-                        {
-                            log::warn!("could not store local lyrics for track {track}: {err}");
-                        }
-                        let text = lyrics_text(plain.as_deref(), synced.as_deref());
-                        let status = if synced.is_some() {
-                            "Local lyrics (.lrc)"
-                        } else {
-                            "Local lyrics"
-                        }
-                        .to_string();
-                        let timed = timed.clone();
-                        let _ = weak.upgrade_in_event_loop(move |ui| {
-                            show_lyrics(&ui, &timed, &text, synced.as_deref());
-                            ui.set_lyrics_status(status.into());
-                        });
-                        return;
-                    }
-                }
-                let timed = timed.clone();
-                let _ = weak.upgrade_in_event_loop(move |ui| {
-                    show_lyrics(&ui, &timed, "", None);
-                    ui.set_lyrics_status("No saved lyrics yet. Press Fetch lyrics.".into());
-                });
-            }
-            Err(err) => log::warn!("could not read stored lyrics: {err}"),
-        }
+        let result = match lookup_lyrics(&db, track).await {
+            Ok(result) => result,
+            Err(err) => LyricsResult {
+                plain: String::new(),
+                synced: None,
+                status: format!("Could not load lyrics: {err}. Reopen to retry in 30 seconds."),
+                retry_after: Duration::from_secs(30),
+            },
+        };
+        lock(&loader.requests).insert(
+            track,
+            LyricsRequest::Complete {
+                result: result.clone(),
+                at: Instant::now(),
+            },
+        );
+        display_lyrics(&weak, track, &loader.timed, result);
     });
 }
 
-/// Ask for lyrics and keep them. A local `.lrc` beside the file wins over a
-/// remote lookup, so a hand-written or downloaded lyric file always takes effect.
-fn request_lyrics(
+fn display_lyrics(
     weak: &Weak<AppWindow>,
-    db: Db,
-    handle: Handle,
     track: TrackId,
-    timed: TimedLyrics,
+    timed: &TimedLyrics,
+    result: LyricsResult,
 ) {
-    let weak = weak.clone();
-    handle.spawn(async move {
-        let Some(view) = db.track(track).await.ok().flatten() else {
-            let _ = weak.upgrade_in_event_loop(|ui| {
-                ui.set_lyrics_status("That track is no longer in the library.".into())
-            });
-            return;
-        };
-
-        if let Some((plain, synced)) = local_lyrics(&view.path) {
-            if let Err(err) = db
-                .save_lyrics(track, plain.as_deref(), synced.as_deref(), "local")
-                .await
-            {
-                log::warn!("could not store local lyrics for track {track}: {err}");
-            }
-            let text = lyrics_text(plain.as_deref(), synced.as_deref());
-            let status = if synced.is_some() {
-                "Local lyrics (.lrc)"
-            } else {
-                "Local lyrics"
-            }
-            .to_string();
-            let timed = timed.clone();
-            let _ = weak.upgrade_in_event_loop(move |ui| {
-                show_lyrics(&ui, &timed, &text, synced.as_deref());
-                ui.set_lyrics_status(status.into());
-            });
+    let timed = timed.clone();
+    let _ = weak.upgrade_in_event_loop(move |ui| {
+        if !ui.get_lyrics_open() || ui.get_lyrics_track() != saturating_i32(track.max(0) as u64) {
             return;
         }
+        show_lyrics(&ui, &timed, &result.plain, result.synced.as_deref());
+        ui.set_lyrics_status(result.status.into());
+    });
+}
 
+async fn lookup_lyrics(db: &Db, track: TrackId) -> anyhow::Result<LyricsResult> {
+    let view = db
+        .track(track)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("track is no longer in the library"))?;
+    let path = view.path.clone();
+    let local = tokio::task::spawn_blocking(move || local_lyrics(&path)).await??;
+    let (plain, synced, source) = if let Some((plain, synced)) = local {
+        (plain, synced, "local")
+    } else if let Some(stored) = db.lyrics_for(track).await? {
+        return Ok(LyricsResult {
+            plain: lyrics_text(stored.plain.as_deref(), stored.synced.as_deref()),
+            synced: stored.synced,
+            status: format!("Cached ({})", stored.source),
+            retry_after: Duration::from_secs(300),
+        });
+    } else {
         let query = sonora_metadata::TrackQuery {
-            artist: view
-                .artist
-                .clone()
-                .unwrap_or_else(|| "Unknown Artist".to_string()),
-            title: view.title.clone(),
-            album: view.album.clone(),
-            duration_ms: Some(view.duration_ms.max(0) as u64),
+            artist: view.artist.unwrap_or_else(|| "Unknown Artist".to_string()),
+            title: view.title,
+            album: view.album,
+            duration_ms: (view.duration_ms > 0).then_some(view.duration_ms as u64),
         };
-
-        // ureq is blocking, so the request runs off the async reactor.
-        let result = tokio::task::spawn_blocking(move || {
+        let lyrics = tokio::task::spawn_blocking(move || {
             let http = sonora_metadata::UreqHttp::new(sonora_metadata::USER_AGENT);
             sonora_metadata::fetch_lyrics(&http, &query)
         })
-        .await;
-
-        match result {
-            Ok(Ok(Some(lyrics))) => {
-                if let Err(err) = db
-                    .save_lyrics(
-                        track,
-                        lyrics.plain.as_deref(),
-                        lyrics.synced.as_deref(),
-                        "lrclib",
-                    )
-                    .await
-                {
-                    log::warn!("could not store lyrics for track {track}: {err}");
-                }
-
-                let text = lyrics_text(lyrics.plain.as_deref(), lyrics.synced.as_deref());
-                let status = if lyrics.synced.is_some() {
-                    "Synced lyrics from LRCLIB".to_string()
-                } else {
-                    "Lyrics from LRCLIB".to_string()
-                };
-                let synced = lyrics.synced;
-                let timed = timed.clone();
-                let _ = weak.upgrade_in_event_loop(move |ui| {
-                    show_lyrics(&ui, &timed, &text, synced.as_deref());
-                    ui.set_lyrics_status(status.into());
-                });
-            }
-            Ok(Ok(None)) => {
-                let _ = weak.upgrade_in_event_loop(|ui| {
-                    ui.set_lyrics_status("LRCLIB has no lyrics for this track.".into())
-                });
-            }
-            Ok(Err(err)) => {
-                let status = format!("Lyrics lookup failed: {err}");
-                let _ = weak.upgrade_in_event_loop(move |ui| ui.set_lyrics_status(status.into()));
-            }
-            Err(err) => {
-                log::error!("lyrics task failed: {err}");
-                let _ = weak.upgrade_in_event_loop(|ui| {
-                    ui.set_lyrics_status("Lyrics lookup was interrupted.".into())
-                });
+        .await??;
+        match lyrics {
+            Some(lyrics) => (lyrics.plain, lyrics.synced, "lrclib"),
+            None => {
+                return Ok(LyricsResult {
+                    plain: String::new(),
+                    synced: None,
+                    status: "No lyrics available for this track.".to_string(),
+                    retry_after: Duration::from_secs(300),
+                })
             }
         }
-    });
+    };
+    let mut status = if synced.is_some() {
+        format!("Synced lyrics ({source})")
+    } else {
+        format!("Lyrics ({source})")
+    };
+    if let Err(err) = db
+        .save_lyrics(track, plain.as_deref(), synced.as_deref(), source)
+        .await
+    {
+        status.push_str(&format!(" · Could not cache: {err}"));
+    }
+    Ok(LyricsResult {
+        plain: lyrics_text(plain.as_deref(), synced.as_deref()),
+        synced,
+        status,
+        retry_after: Duration::from_secs(300),
+    })
 }
 
-/// Local `.lrc` file next to the track, taking precedence over remote results.
-/// The whole file is kept as synced text when it carries LRC timestamps; plain
-/// text is derived the same way the display does. A missing or unreadable file
-/// is treated as "no local lyrics", not an error.
-fn local_lyrics(path: &Path) -> Option<(Option<String>, Option<String>)> {
+/// Read a local sibling `.lrc` before asking a remote provider.
+fn local_lyrics(path: &Path) -> std::io::Result<Option<(Option<String>, Option<String>)>> {
     let candidate = path.with_extension("lrc");
-    let raw = std::fs::read_to_string(&candidate).ok()?;
+    let raw = match std::fs::read_to_string(&candidate) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err),
+    };
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return None;
+        return Ok(None);
     }
-    let synced = if trimmed.contains('[') && trimmed.contains(']') {
+    let synced = if !parse_lrc_timed(trimmed).is_empty() {
         Some(trimmed.to_string())
     } else {
         None
@@ -2198,9 +2685,9 @@ fn local_lyrics(path: &Path) -> Option<(Option<String>, Option<String>)> {
         Some(trimmed.to_string())
     };
     if plain.is_none() && synced.is_none() {
-        return None;
+        return Ok(None);
     }
-    Some((plain, synced))
+    Ok(Some((plain, synced)))
 }
 
 /// Text to display: plain lyrics when LRCLIB has them, otherwise the synced
@@ -2386,6 +2873,9 @@ fn apply_settings(ui: &AppWindow, settings: &Settings) {
             .into(),
     );
     ui.set_settings_device_sync(settings.device_sync_enabled);
+    ui.set_settings_history_retention(settings.history_retention.index() as i32);
+    ui.set_settings_blur_panels(settings.appearance.blur_panels);
+    ui.set_settings_cover_background(settings.appearance.cover_background);
     ui.set_settings_device(settings.playback_device.as_deref().unwrap_or("").into());
 }
 
@@ -2409,10 +2899,6 @@ fn set_busy(weak: &Weak<AppWindow>, busy: bool) {
     let _ = weak.upgrade_in_event_loop(move |ui| ui.set_busy(busy));
 }
 
-fn set_playing(weak: &Weak<AppWindow>, playing: bool) {
-    let _ = weak.upgrade_in_event_loop(move |ui| ui.set_playing(playing));
-}
-
 /// Keep the three queue-tab counts in sync with the engine state.
 fn refresh_queue_tabs(weak: &Weak<AppWindow>, engine: &Engine) {
     let current = engine.current().is_some();
@@ -2429,18 +2915,29 @@ fn refresh_queue_tabs(weak: &Weak<AppWindow>, engine: &Engine) {
 fn refresh_playback(weak: &Weak<AppWindow>, engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) {
     let entries = queue_rows(engine, lookup);
     let now = now_playing(engine, lookup);
+    let current = engine
+        .current()
+        .map_or(0, |track| saturating_i32(track.max(0) as u64));
 
     let _ = weak.upgrade_in_event_loop(move |ui| {
         ui.set_queue_entries(model(entries));
-        ui.set_now_playing_title(now.title.into());
-        ui.set_now_playing_subtitle(now.subtitle.into());
-        ui.set_now_playing_artist(now.artist.into());
-        ui.set_now_playing_artist_id(saturating_i32(now.artist_id.max(0) as u64));
-        ui.set_now_playing_album_id(saturating_i32(now.album_id.max(0) as u64));
+        if ui.get_pending_track() != 0 && ui.get_pending_track() != current {
+            return;
+        }
+        ui.set_pending_track(0);
+        apply_now_playing(&ui, &now);
     });
 
     refresh_queue_tabs(weak, engine);
 }
+fn apply_now_playing(ui: &AppWindow, now: &TrackInfo) {
+    ui.set_now_playing_title(now.title.clone().into());
+    ui.set_now_playing_subtitle(now.subtitle.clone().into());
+    ui.set_now_playing_artist(now.artist.clone().into());
+    ui.set_now_playing_artist_id(saturating_i32(now.artist_id.max(0) as u64));
+    ui.set_now_playing_album_id(saturating_i32(now.album_id.max(0) as u64));
+}
+
 fn now_playing(engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) -> TrackInfo {
     let current = engine.current();
     let lookup = lock(lookup);
@@ -2452,9 +2949,9 @@ fn now_playing(engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) -> TrackInfo {
         })
 }
 fn queue_rows(engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) -> Vec<QueueRow> {
+    let upcoming = engine.upcoming();
     let lookup = lock(lookup);
-    engine
-        .upcoming()
+    upcoming
         .into_iter()
         .map(|track| {
             let info = lookup
@@ -2530,11 +3027,16 @@ fn playlist_rows(playlists: &[PlaylistSummary]) -> Vec<PlaylistRow> {
         .collect()
 }
 
+fn row_cover_key(track: &TrackView) -> String {
+    format!("{}:{}:{}", track.id, track.path.display(), track.file_size)
+}
+
 fn track_rows(tracks: &[TrackView]) -> Vec<TrackRow> {
     tracks
         .iter()
         .map(|track| TrackRow {
             id: saturating_i32(track.id as u64),
+            cover_key: row_cover_key(track).into(),
             title: track.title.clone().into(),
             artist: track.artist.clone().unwrap_or_default().into(),
             artist_id: saturating_i32(track.artist_id.unwrap_or(0).max(0) as u64),
@@ -2562,6 +3064,7 @@ fn history_rows(entries: &[HistoryEntry]) -> Vec<TrackRow> {
             }
             TrackRow {
                 id: saturating_i32(entry.track.id as u64),
+                cover_key: row_cover_key(&entry.track).into(),
                 title: entry.track.title.clone().into(),
                 artist: entry.track.artist.clone().unwrap_or_default().into(),
                 artist_id: saturating_i32(entry.track.artist_id.unwrap_or(0).max(0) as u64),
@@ -2671,7 +3174,7 @@ mod tests {
             "[00:01.00] first line\n[00:02.00] second line\n",
         )
         .unwrap();
-        let (plain, synced) = local_lyrics(&track).expect("local lyrics");
+        let (plain, synced) = local_lyrics(&track).unwrap().expect("local lyrics");
         assert!(synced.as_deref().unwrap().contains("[00:01.00]"));
         assert_eq!(plain.as_deref(), Some("first line\nsecond line"));
     }
@@ -2682,7 +3185,7 @@ mod tests {
         let track = dir.path().join("song.mp3");
         std::fs::write(&track, b"audio").unwrap();
         std::fs::write(dir.path().join("song.lrc"), "hello\nworld\n").unwrap();
-        let (plain, synced) = local_lyrics(&track).expect("local lyrics");
+        let (plain, synced) = local_lyrics(&track).unwrap().expect("local lyrics");
         assert_eq!(plain.as_deref(), Some("hello\nworld"));
         assert_eq!(synced, None);
     }
@@ -2692,7 +3195,64 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let track = dir.path().join("song.ogg");
         std::fs::write(&track, b"audio").unwrap();
-        assert!(local_lyrics(&track).is_none());
+        assert!(local_lyrics(&track).unwrap().is_none());
+    }
+
+    #[test]
+    fn cover_effects_generate_blurred_pixels_and_respect_both_options() {
+        let image = image::RgbaImage::from_fn(64, 64, |x, _| {
+            if x < 32 {
+                image::Rgba([240, 10, 10, 255])
+            } else {
+                image::Rgba([10, 10, 240, 255])
+            }
+        });
+        let cover = (image.into_raw(), 64, 64);
+        let (background, panels) = cover_backgrounds(Some(&cover), AppearanceSettings::default());
+        let expected = (BACKDROP_WIDTH * BACKDROP_HEIGHT * 4) as usize;
+        assert_eq!(background.as_ref().unwrap().len(), expected);
+        assert_eq!(panels.as_ref().unwrap().len(), expected);
+        assert_ne!(
+            background, panels,
+            "panel and scene blur have distinct measured radii"
+        );
+        let (background, panels) = cover_backgrounds(
+            Some(&cover),
+            AppearanceSettings {
+                blur_panels: false,
+                cover_background: true,
+            },
+        );
+        assert!(background.is_some());
+        assert!(panels.is_none());
+        assert_eq!(
+            cover_backgrounds(
+                Some(&cover),
+                AppearanceSettings {
+                    blur_panels: true,
+                    cover_background: false
+                }
+            ),
+            (None, None)
+        );
+        assert_eq!(
+            cover_backgrounds(None, AppearanceSettings::default()),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn bracketed_plain_lyrics_stay_plain_and_unreadable_local_files_are_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let track = dir.path().join("track.flac");
+        let local = track.with_extension("lrc");
+        std::fs::write(&local, "[Chorus]\nSing along").unwrap();
+        let (plain, synced) = local_lyrics(&track).unwrap().unwrap();
+        assert_eq!(plain.as_deref(), Some("[Chorus]\nSing along"));
+        assert!(synced.is_none());
+        std::fs::remove_file(&local).unwrap();
+        std::fs::create_dir(&local).unwrap();
+        assert!(local_lyrics(&track).is_err());
     }
 
     #[test]
@@ -2822,5 +3382,230 @@ mod timed_lyrics {
             lines,
             vec![(10_000, "first".into()), (20_000, "second".into()),]
         );
+    }
+}
+
+#[cfg(test)]
+mod interaction_tests {
+    use super::*;
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
+    use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
+    use slint::platform::{Platform, PointerEventButton, WindowAdapter, WindowEvent};
+
+    struct TestPlatform(Rc<MinimalSoftwareWindow>);
+
+    impl Platform for TestPlatform {
+        fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, slint::PlatformError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    fn click(ui: &AppWindow, x: f32, y: f32) {
+        let position = slint::LogicalPosition::new(x, y);
+        ui.window().dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Left,
+        });
+        ui.window().dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    }
+
+    #[test]
+    fn pointer_controls_scrub_continuously_and_panels_keep_their_geometry() {
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
+        slint::platform::set_platform(Box::new(TestPlatform(window.clone()))).unwrap();
+        let ui = AppWindow::new().unwrap();
+        window.set_size(slint::PhysicalSize::new(1920, 1080));
+        ui.set_playback_available(true);
+        ui.set_seekable(true);
+        ui.set_duration_ms(100_000);
+        ui.set_queue_open(false);
+        let toggles = Rc::new(Cell::new(0));
+        let toggles_for_callback = toggles.clone();
+        ui.on_toggle_playback(move || toggles_for_callback.set(toggles_for_callback.get() + 1));
+        let seeks = Rc::new(RefCell::new(Vec::new()));
+        let seeks_for_callback = seeks.clone();
+        ui.on_seek_requested(move |value| seeks_for_callback.borrow_mut().push(value));
+        let volume = Rc::new(Cell::new(-1.0));
+        let volume_for_callback = volume.clone();
+        ui.on_volume_changed(move |value| volume_for_callback.set(value));
+        ui.show().unwrap();
+        let mut pixels = vec![slint::Rgb8Pixel::default(); 1920 * 1080];
+        window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, 1920);
+        });
+
+        click(&ui, 142.0, 422.0);
+        assert_eq!(
+            toggles.get(),
+            1,
+            "the focus scope must not intercept pointer clicks"
+        );
+        click(&ui, 85.0, 542.0);
+        assert!(
+            (volume.get() - 0.25).abs() < 0.05,
+            "volume click did not reach the slider"
+        );
+        ui.window().dispatch_event(WindowEvent::PointerPressed {
+            position: slint::LogicalPosition::new(51.0, 388.0),
+            button: PointerEventButton::Left,
+        });
+        ui.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(143.0, 388.0),
+        });
+        assert!(ui.get_seeking());
+        window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, 1920);
+        });
+        assert!(
+            pixels[388 * 1920 + 60].r > 210,
+            "progress must fill from its left edge"
+        );
+        assert!(
+            pixels[388 * 1920 + 230].r < 210,
+            "the unplayed right half must stay unfilled"
+        );
+
+        ui.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(900.0, 388.0),
+        });
+        ui.window().dispatch_event(WindowEvent::PointerReleased {
+            position: slint::LogicalPosition::new(900.0, 388.0),
+            button: PointerEventButton::Left,
+        });
+        assert!(!ui.get_seeking());
+        let values = seeks.borrow();
+        assert!(values.len() >= 3, "dragging must continuously send seeks");
+        assert!((values[0] - 10_000).abs() < 500);
+        assert!(values.iter().any(|value| (*value - 50_000).abs() < 500));
+        assert_eq!(
+            values.last(),
+            Some(&100_000),
+            "captured release outside the bar must clamp"
+        );
+        drop(values);
+
+        ui.set_section("settings".into());
+        ui.set_settings_format_tier("lossy".into());
+        ui.set_folders(model(vec![FolderRow {
+            id: 1,
+            path: "/generated/music".into(),
+        }]));
+        window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, 1920);
+        });
+        // The cache and bitrate rails must occupy most of the page, not collapse
+        // to the sliders' intrinsic minimum width.
+        let white_on_row = |y: usize| {
+            pixels[y * 1920..(y + 1) * 1920]
+                .iter()
+                .filter(|pixel| pixel.r > 210 && pixel.g > 210 && pixel.b > 210)
+                .count()
+        };
+        assert!(
+            (300..1000).any(|y| white_on_row(y) > 150),
+            "no full-width settings slider was rendered"
+        );
+        let panel = slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
+            &[240u8, 0, 0, 255],
+            1,
+            1,
+        ));
+        ui.set_panel_backdrop(panel);
+        ui.set_settings_cover_background(true);
+        ui.set_settings_blur_panels(true);
+        window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, 1920);
+        });
+        let blurred = pixels[60 * 1920 + 900];
+        assert!(blurred.r > blurred.g + 20);
+        ui.set_settings_blur_panels(false);
+        std::thread::sleep(Duration::from_millis(170));
+        slint::platform::update_timers_and_animations();
+        window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, 1920);
+        });
+        let plain = pixels[60 * 1920 + 900];
+        assert_eq!(
+            plain.r, plain.g,
+            "disabling panel blur must remove the cover layer"
+        );
+        ui.set_lyrics_open(true);
+        ui.set_lyric_lines(model(
+            (0..150)
+                .map(|index| format!("Line {index}: a generated lyric").into())
+                .collect(),
+        ));
+        ui.set_lyric_active(60);
+        window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, 1920);
+        });
+        window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, 1920);
+        });
+        let lyric_pixels = (300..950)
+            .flat_map(|y| (1560..1880).map(move |x| (x, y)))
+            .filter(|(x, y)| {
+                let pixel = pixels[y * 1920 + x];
+                pixel.r > 170 && pixel.g > 170 && pixel.b > 170
+            })
+            .count();
+        assert!(
+            lyric_pixels > 500,
+            "the lyrics viewport collapsed instead of showing its content"
+        );
+        ui.window().dispatch_event(WindowEvent::PointerScrolled {
+            position: slint::LogicalPosition::new(1750.0, 600.0),
+            delta_x: 0.0,
+            delta_y: -200.0,
+        });
+        assert!(
+            !ui.get_lyrics_following(),
+            "wheel scrolling must suspend automatic following"
+        );
+        ui.set_lyric_active(61);
+        assert!(!ui.get_lyrics_following());
+
+        ui.set_lyrics_open(false);
+        ui.set_queue_open(true);
+        ui.set_section("tracks".into());
+        ui.set_all_tracks(model(
+            (0..600)
+                .map(|index| TrackRow {
+                    id: index,
+                    title: format!("Track {index} {}", "long title ".repeat(30)).into(),
+                    artist: "long artist name ".repeat(30).into(),
+                    album: "long album name ".repeat(30).into(),
+                    duration: "10:00".into(),
+                    ..TrackRow::default()
+                })
+                .collect(),
+        ));
+        window.set_size(slint::PhysicalSize::new(920, 600));
+        pixels.resize(920 * 600, slint::Rgb8Pixel::default());
+        assert!(window.draw_if_needed(|renderer| {
+            renderer.render(&mut pixels, 920);
+        }));
+        let selected = Rc::new(Cell::new(-1));
+        let selected_for_callback = selected.clone();
+        ui.on_track_activated(move |id| selected_for_callback.set(id));
+        click(&ui, 300.0, 135.0);
+        assert_eq!(
+            selected.get(),
+            0,
+            "the song title must activate its full row"
+        );
+        selected.set(-1);
+        click(&ui, 260.0, 140.0);
+        assert_eq!(
+            selected.get(),
+            0,
+            "cover artwork must remain part of the play hit target"
+        );
+        ui.hide().unwrap();
     }
 }

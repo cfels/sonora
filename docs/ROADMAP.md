@@ -17,7 +17,7 @@ Delivered:
 - SQLite schema, migrations, repositories, FTS5 search.
 - Recursive incremental scanner with tag extraction and file-name fallback.
 - Slint shell: sidebar navigation, Home, Tracks, Albums, Library folders,
-  global search, live scan status.
+  global search, live scan status. Folder management now lives in Settings.
 - CLI: `--scan`, `--where`, `--version`.
 - Unit and integration tests for parsing, database behaviour and scanning.
 
@@ -33,13 +33,18 @@ Delivered:
   volume, the full queue API and a caller-supplied track resolver.
 - Apple-Music-style queue rules (shuffle only upcoming, play next, add to queue,
   drag reorder, repeat off/all/one), tested in `sonora-core::queue`.
-- Transport bar (track, play/pause, previous/next, click-to-seek, volume),
-  per-row play/Next/Add actions and a drag-reorderable queue panel.
+- Transport bar (track, play/pause, previous/next, continuous scrubbing, volume),
+  per-row covers and play/Next/Add actions and a drag-reorderable queue panel.
+  A serial worker handles track switches without blocking input; cover changes
+  fade over 140 ms. Appearance switches persist panel blur and cover backgrounds.
 - Queue persistence: the queue snapshot survives a restart, including shuffle
   state and repeat mode.
 - Settings: format preference and ceiling, cache budget, artwork format/quality,
   folder template, the Last.fm key, native download/cache folder pickers and the
-  device-sync opt-in.
+  device-sync opt-in. History retention defaults to seven rolling UTC days;
+  saving a shorter period removes expired events while preserving lifetime
+  counts, ratings and favourites. Track-cache clearing asks for confirmation
+  and protects queued files and library originals.
 - Play activity: history, play and skip counts, star ratings and favourites,
   written by the UI, shown on Home (Most played), History and Favourites, and
   readable headlessly with `sonora --history`.
@@ -48,8 +53,8 @@ Delivered:
   (album gain as the fallback) as a linear volume factor so loudness is even
   across files. Tracks carrying a gain show it as a badge in the list.
 - Output device selection: the Settings screen opens a picker listing the
-  GStreamer sinks this system actually has; the choice is stored in settings
-  and switched on the live pipeline immediately, not just at the next start.
+  GStreamer output backends this system has; the choice is stored in settings
+  and applied on the next launch. The engine refuses to replace a live sink.
 - Album pages: clicking a release in Albums opens its tracks in disc/track
   order (untagged files last), with one action that plays the whole album
   and the usual per-row play, queue, rating and favourite controls.
@@ -102,13 +107,15 @@ Delivered:
 - Lyrics stored per track in the `lyrics` table, and reachable headlessly with
   `sonora --lyrics <query>` and `sonora --cover <query>`.
 - A lyrics pane in the player: it shows saved lyrics first (so a second open is
-  offline and instant), fetches from LRCLIB on demand, keeps the result, and
-  clears itself when the track changes instead of showing the previous song.
+  offline and instant), fetches automatically when opened or when the track
+  changes, and keeps the result. Local `.lrc` files take precedence. In-flight
+  and recent failed/empty requests are deduplicated; stale results are ignored.
 - Cover art in the transport bar, decoded off the UI thread from the file's
   embedded picture and refreshed whenever playback moves to another track.
 - Synced lyrics follow playback line by line: the pane splits LRC into timed
   lines, highlights the current one from the transport clock and scrolls it
-  into view, for LRCLIB results and local `.lrc` files alike.
+  into view, for LRCLIB results and local `.lrc` files alike. Manual scrolling
+  suspends following until the listener presses Follow playback.
 
 Still open:
 
@@ -116,9 +123,6 @@ Still open:
 - Last.fm (needs a free developer API key): auth, scrobbling with an offline
   queue, now-playing, loved tracks, charts, similar artists, recommendations,
   cached responses.
-- Local `.lrc` files beside a track take precedence over remote lyrics: a
-  Fetch checks the sibling file first, and opening the lyrics pane picks it up
-  when nothing is cached yet.
 - Lyric editing: hand-syncing a plain lyric, or fixing a bad LRC.
 - Discord Rich Presence (hidden while paused, fully disableable): RPC/IPC on
   desktop, and on Android through the Discord Social SDK, which publishes
@@ -181,6 +185,9 @@ after the app is killed and reopened.
 
 Delivered:
 
+- Native shell geometry and vector assets taken from the supplied Figma file;
+  the repair report records the remaining visual limits. Favourites are under
+  Playlists and History opens from Home.
 - First-run onboarding: welcome, music folders, format preference and the
   optional Last.fm key, skippable at every step, plus **Run onboarding again** in
   settings. The Soulseek sharing notice and device setup join the flow when

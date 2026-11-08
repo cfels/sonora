@@ -52,6 +52,14 @@ pub struct EvictionReport {
     pub kept_tracks: usize,
 }
 
+#[derive(Debug, Default)]
+pub struct ClearReport {
+    pub removed: usize,
+    pub freed_bytes: u64,
+    pub kept: usize,
+    pub errors: Vec<String>,
+}
+
 impl EvictionReport {
     pub fn removed_count(&self) -> usize {
         self.removed.len()
@@ -153,7 +161,11 @@ impl TrackCache {
         for item in directory {
             let item = item.map_err(|err| Error::io(&self.root, err))?;
             let path = item.path();
-            if !path.is_file() {
+            if !item
+                .file_type()
+                .map_err(|err| Error::io(&path, err))?
+                .is_file()
+            {
                 continue;
             }
             let Some(track) = parse_track_id(&path) else {
@@ -212,19 +224,68 @@ impl TrackCache {
     }
 
     pub fn remove(&self, track: TrackId) -> Result<bool> {
-        let path = self
+        let entries: Vec<CacheEntry> = self
             .entries()?
             .into_iter()
-            .find(|entry| entry.track == track);
-        let Some(entry) = path else {
+            .filter(|entry| entry.track == track)
+            .collect();
+        if entries.is_empty() {
             return Ok(false);
-        };
-
-        std::fs::remove_file(&entry.path).map_err(|err| Error::io(&entry.path, err))?;
+        }
+        for entry in entries {
+            std::fs::remove_file(&entry.path).map_err(|err| Error::io(&entry.path, err))?;
+        }
         let mut index = self.load_index()?;
         index.played.remove(&track.to_string());
         self.save_index(&index)?;
         Ok(true)
+    }
+
+    /// Clear only files registered by this cache. Never traverse directories,
+    /// follow symlinks, remove library originals or disturb playing/queued files.
+    /// A damaged index leaves unowned files alone rather than guessing ownership.
+    pub fn clear(&self, protected: &[TrackId], originals: &[PathBuf]) -> Result<ClearReport> {
+        let mut index = self.load_index()?;
+        let mut report = ClearReport::default();
+        let originals: Vec<PathBuf> = originals
+            .iter()
+            .map(|path| path.canonicalize().unwrap_or_else(|_| path.clone()))
+            .collect();
+        for entry in self.entries()? {
+            let metadata = std::fs::symlink_metadata(&entry.path)
+                .map_err(|err| Error::io(&entry.path, err))?;
+            let canonical = entry
+                .path
+                .canonicalize()
+                .map_err(|err| Error::io(&entry.path, err))?;
+            if protected.contains(&entry.track)
+                || !index.played.contains_key(&entry.track.to_string())
+                || !metadata.file_type().is_file()
+                || originals.contains(&canonical)
+            {
+                report.kept += 1;
+                continue;
+            }
+            match std::fs::remove_file(&entry.path) {
+                Ok(()) => {
+                    report.removed += 1;
+                    report.freed_bytes += entry.size;
+                    // A track can have more than one cached encoding. Keep the
+                    // ownership entry until all of its files were considered.
+                }
+                Err(err) => report
+                    .errors
+                    .push(format!("{}: {err}", entry.path.display())),
+            }
+        }
+        if report.removed > 0 {
+            let remaining = self.entries()?;
+            index
+                .played
+                .retain(|id, _| remaining.iter().any(|entry| entry.track.to_string() == *id));
+            self.save_index(&index)?;
+        }
+        Ok(report)
     }
 
     /// Enforce the budget against the real disk.
@@ -590,5 +651,48 @@ mod tests {
         let available = free_space(directory.path()).expect("free space on a temp dir");
         assert!(available > 0);
         assert!(free_space(Path::new("/definitely/not/a/path")).is_none());
+    }
+    #[test]
+    fn manual_clear_keeps_unowned_protected_and_library_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = TrackCache::at(dir.path());
+        for id in 1..=4 {
+            cache.put(id, "flac", b"music").unwrap();
+        }
+        cache.put(1, "ogg", b"other encoding").unwrap();
+        let original = cache.path_for(4, "flac");
+        std::fs::write(dir.path().join("5.flac"), b"unowned").unwrap();
+        std::fs::write(dir.path().join("library.db"), b"metadata").unwrap();
+        let report = cache
+            .clear(&[2, 3], std::slice::from_ref(&original))
+            .unwrap();
+        assert_eq!(report.removed, 2);
+        assert!(report.errors.is_empty());
+        for name in ["2.flac", "3.flac", "4.flac", "5.flac", "library.db"] {
+            assert!(dir.path().join(name).exists());
+        }
+        assert!(!cache.path_for(1, "flac").exists());
+        assert!(!cache.path_for(1, "ogg").exists());
+        assert!(cache.clear(&[], &[original]).unwrap().errors.is_empty());
+    }
+
+    #[test]
+    fn damaged_cache_index_never_authorizes_manual_deletion() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = TrackCache::at(dir.path());
+        cache.put(1, "flac", b"music").unwrap();
+        std::fs::write(dir.path().join(INDEX_FILE), b"broken").unwrap();
+        assert_eq!(cache.clear(&[], &[]).unwrap().removed, 0);
+        assert!(cache.path_for(1, "flac").exists());
+    }
+
+    #[test]
+    fn removing_a_track_removes_all_of_its_cached_encodings() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = TrackCache::at(dir.path());
+        cache.put(1, "flac", b"one").unwrap();
+        cache.put(1, "mp3", b"two").unwrap();
+        assert!(cache.remove(1).unwrap());
+        assert_eq!(cache.stats().unwrap().tracks, 0);
     }
 }

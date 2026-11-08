@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Rust 1.80 or newer (`rustup` recommended; `rust-toolchain.toml` pins stable).
+- Rust 1.96 or newer (`rustup` recommended; `rust-toolchain.toml` pins stable).
 - A C toolchain (`cc`) and `pkg-config`.
 - **Linux:** `libfontconfig1-dev` is required to build the Slint backend.
   From phase 2 onwards the GStreamer development packages are required too:
@@ -22,6 +22,31 @@
   The APK harness and its CI job are **not in this repository yet**; they land
   with the first Android build target, so treat this list as the intended setup
   rather than a validated one.
+
+## NixOS
+
+Enter the pinned environment before running Cargo:
+
+```sh
+nix-shell
+pkg-config --modversion fontconfig gstreamer-1.0
+cargo build --workspace
+cargo run -p sonora-app
+```
+
+`shell.nix` and `flake.nix` share `nix/dev-shell.nix`; both use the revision in
+`flake.lock`. The shell supplies Fontconfig, GStreamer headers/plugins, the
+compiler, `pkg-config` and the runtime library paths. It needs no global system
+changes. `nix develop` is also supported once the flake files are tracked (or
+from an extracted source archive). Avoid `nix develop path:.` after building:
+it copies the entire directory, including `target`, into the Nix store.
+
+The `yeslogic-fontconfig-sys` failure means `pkg-config` cannot find
+`fontconfig.pc`. Setting `PKG_CONFIG_PATH` only to `/run/current-system/sw`
+does not expose Nix development outputs. Use the shell rather than a stub or
+hardcoded store paths. The locked Slint 1.18.1 and GStreamer 0.25.4 bindings
+both require Rust 1.92, and the locked `kstring` requires Rust 1.96. The old
+advertised 1.80 minimum did not match this dependency set.
 
 ## Build and test
 
@@ -99,10 +124,12 @@ tests drive a real GStreamer pipeline into `fakesink`.
 | `SONORA_DATA_DIR` | Override the library data directory (tests, portable installs) |
 | `RUST_LOG` | Log filter, e.g. `RUST_LOG=debug` |
 
-## Sandbox note
+## Repair verification
 
-The development container used for this phase has no root access and no
-fontconfig development package, so the UI binary was linked against a local stub
-purely to compile and run the headless CLI there. On any normal desktop install
-the `libfontconfig1-dev` package above is what you need; nothing about the stub
-is part of this repository.
+The repair uses the real Fontconfig and GStreamer libraries. Tests include a
+Slint software-renderer test that sends pointer and wheel events without a
+display, plus GStreamer transport tests using synchronized `fakesink` output.
+`slint-lsp format -i crates/sonora-ui/ui/app.slint` formats the UI markup.
+
+See [REPAIR_REPORT.md](REPAIR_REPORT.md) for the baseline, per-issue status,
+platform limits and screenshot comparison details.
